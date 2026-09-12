@@ -1,0 +1,13 @@
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  VITE_API_URL = "https://api-production-89a4.up.railway.app/api"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
