@@ -1,6 +1,6 @@
 # SUNU MALL — Documentation Globale de l'Environnement
 
-Bienvenue sur le dépôt de **SUNU MALL**, une place de marché (marketplace) sénégalaise en ligne permettant à chaque vendeur de gérer sa propre boutique (produits, commandes, livreurs), accessible via des interfaces web et mobiles.
+Bienvenue sur le dépôt de **SUNU MALL**, une place de marché (marketplace) sénégalaise en ligne permettant à chaque vendeur de gérer sa propre boutique (produits, commandes, livreurs), accessible via une interface web responsive.
 
 Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques logicielles du projet.
 
@@ -14,8 +14,8 @@ Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques 
 | **Développeur Backend** | API REST (Django DRF), tâches asynchrones (Celery) |
 
 | **Développeuse Frontend** | Boutique publique (React/Vite) & Espaces vendeur / admin (React/Vite) |
-| **Développeuse Mobile & IA** | Application Client (React Native) & Intégration IA |
-| **Développeur Mobile, IA & DevOps** | App mobile, intégration IA et support infrastructure / CI-CD |
+| **Développeuse IA** | Intégration IA |
+| **Développeur IA & DevOps** | Intégration IA et support infrastructure / CI-CD |
 
 ---
 
@@ -24,8 +24,7 @@ Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques 
 ```
 sunu-mall/
 ├── backend/            # API REST - Django + Django REST Framework + Celery
-├── frontend/           # Boutique publique + espaces vendeur/admin/livreur - React + Vite (SPA)
-├── mobile/             # Application mobile Client - React Native (Expo)
+├── frontend/           # Boutique publique + espaces vendeur/admin/livreur - React + Vite (SPA responsive)
 ├── infra/              # Configuration Docker Compose, Nginx, Variables d'env & Monitoring
 │   ├── env/            # Variables d'environnement templates (dev, prod, staging)
 │   ├── nginx/          # Configuration du reverse proxy de routage
@@ -68,6 +67,22 @@ docker compose -f infra/docker-compose.dev.yml up --build -d
 # Visualisation des logs du backend uniquement
 docker compose -f infra/docker-compose.dev.yml logs -f backend
 ```
+
+### 3bis. Comptes de démonstration
+
+```bash
+# Compte administrateur de la plateforme (rôle admin, email vérifié)
+docker compose -f infra/docker-compose.dev.yml exec backend python manage.py create_admin
+#   → admin@sunumall.com / Admin@12345  (—super-admin pour accorder aussi le rôle super_admin)
+
+# Marketplace de démo : boutiques, produits, avis (idempotent)
+docker compose -f infra/docker-compose.dev.yml exec backend python manage.py seed_demo
+#   → demo.vendeurN@sunumall.com / Demo@12345  et  demo.clientN@sunumall.com / Demo@12345
+```
+
+> **Attention** : `admin@sunumall.com` est aussi l'identifiant par défaut de la
+> console **PgAdmin** (base de données, mot de passe `admin`) — ce n'est pas le
+> même compte que l'administrateur de la plateforme créé ci-dessus.
 
 ---
 
@@ -120,6 +135,32 @@ Des scripts automatisés sont à votre disposition dans le dossier `infra/script
   ```bash
   bash infra/scripts/restore.sh <nom_du_fichier_sql> <nom_du_fichier_media>
   ```
+
+---
+
+## 🚀 Déploiement en production
+
+Le déploiement est géré par `infra/scripts/deploy.sh` (stack `infra/docker-compose.prod.yml`).
+
+### Prérequis serveur (à faire une fois)
+1. Cloner le repo et se placer sur la branche à déployer.
+2. Renseigner les fichiers d'environnement :
+   ```bash
+   cp infra/env/{backend,postgres,redis,compose}.env.example infra/env/{backend,postgres,redis,compose}.env
+   ```
+   * `backend.env` : `DJANGO_SECRET_KEY` + `DJANGO_ALLOWED_HOSTS` (obligatoires, sinon le backend refuse de démarrer), `MINIO_PUBLIC_ENDPOINT` = domaine S3 public, clés Wave / Orange Money / Anthropic.
+   * `postgres.env` : mot de passe (ne PAS activer `trust`).
+   * `compose.env` : `PUBLIC_DOMAIN`, identifiants MinIO, mot de passe Grafana.
+3. Placer les certificats TLS dans `infra/nginx/ssl/` (`fullchain.pem` + `privkey.pem`) — **sans eux nginx ne démarre pas** (port 443).
+4. Ouvrir les ports **80** et **443** sur le firewall/hébergeur.
+
+### Lancer un déploiement
+```bash
+bash infra/scripts/deploy.sh
+```
+Le script tire le code, reconstruit les images, démarre sans coupure (`up -d --build`), applique les migrations et recollecte la statique.
+
+> La statique (admin Django) est embarquée dans l'image backend et servie par WhiteNoise via gunicorn — aucune étape statique séparée en prod.
 
 ---
 

@@ -1,5 +1,8 @@
+import uuid
+
 from rest_framework import serializers
 from .models import Category, Inventory, Product, ProductImage, ProductVariant, Review, Store, StoreCategory, StoreSettings
+from apps.kyc.models import SellerKYC
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -43,6 +46,10 @@ class StoreSerializer(serializers.ModelSerializer):
     rating = serializers.FloatField(read_only=True, default=None)
     review_count = serializers.IntegerField(read_only=True, default=0)
     category_names = serializers.SerializerMethodField()
+    # Badge "Vendeur vérifié" généré BACKEND (spec §9) : l'annotation
+    # Exists le fournit sur les querysets de liste ; sinon le champ se calcule
+    # à la volée pour un objet isolé.
+    is_verified_seller = serializers.SerializerMethodField()
 
     class Meta:
         model = Store
@@ -50,7 +57,8 @@ class StoreSerializer(serializers.ModelSerializer):
             "id", "owner", "owner_email", "category", "category_detail", "name",
             "phone", "description", "address", "city", "rejection_reason",
             "logo_url", "banner_url", "status", "latitude", "longitude", "rating", "review_count",
-            "category_names", "created_at", "updated_at",
+            "category_names", "is_verified_seller",
+            "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "owner", "created_at", "updated_at", "owner_email",
@@ -74,6 +82,14 @@ class StoreSerializer(serializers.ModelSerializer):
             .distinct()
         )
 
+    def get_is_verified_seller(self, obj):
+        annotated = getattr(obj, "is_verified_seller", None)
+        if annotated is not None:
+            return annotated
+        return SellerKYC.objects.filter(
+            seller_id=obj.owner_id, status=SellerKYC.Status.VERIFIED,
+        ).exists()
+
 
 class StoreSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -86,6 +102,9 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     is_available = serializers.SerializerMethodField()
     quantity = serializers.SerializerMethodField()
     initial_quantity = serializers.IntegerField(write_only=True, required=False, default=100, min_value=0)
+    # Référence interne facultative : si absente ou vide, un code unique est
+    # généré automatiquement (le vendeur ne connaît pas forcément le concept de SKU).
+    sku = serializers.CharField(required=False, allow_blank=True, max_length=100)
 
     class Meta:
         model = ProductVariant
@@ -102,8 +121,17 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     def get_quantity(self, obj):
         return obj.inventory.available() if hasattr(obj, "inventory") else 0
 
+    def _generate_sku(self, product_id):
+        for _ in range(5):
+            candidate = f"P{product_id}-{uuid.uuid4().hex[:6].upper()}"
+            if not ProductVariant.objects.filter(sku=candidate).exists():
+                return candidate
+        return f"P{product_id}-{uuid.uuid4().hex[:12].upper()}"
+
     def create(self, validated_data):
         initial_quantity = validated_data.pop("initial_quantity", 100)
+        if not (validated_data.get("sku") or "").strip():
+            validated_data["sku"] = self._generate_sku(validated_data["product"].id)
         variant = super().create(validated_data)
         Inventory.objects.create(variant=variant, quantity=initial_quantity)
         return variant
@@ -130,12 +158,23 @@ class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
     store_name = serializers.CharField(source='store.name', read_only=True)
+    # Badge boutique "vendeur vérifié" sur la tuile produit (spec §9) — même
+    # mécanique que StoreSerializer.is_verified_seller.
+    store_is_verified = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = [
-            "id", "store", "store_name", "category", "brand", "name", "description",
+            "id", "store", "store_name", "store_is_verified", "category", "brand", "name", "description",
             "base_price", "status", "images", "variants",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_store_is_verified(self, obj):
+        annotated = getattr(obj, "store_is_verified", None)
+        if annotated is not None:
+            return annotated
+        return SellerKYC.objects.filter(
+            seller_id=obj.store.owner_id, status=SellerKYC.Status.VERIFIED,
+        ).exists()

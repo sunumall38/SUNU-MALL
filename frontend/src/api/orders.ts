@@ -1,6 +1,6 @@
 import { API_BASE_URL, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
-import type { Address, CheckoutPayload, Delivery, DeliveryEvent, DeliveryStatus, Driver, DriverAvailability, Order, Paginated } from "@/types";
+import type { Address, CheckoutPayload, Delivery, DeliveryEvent, DeliveryQuote, DeliveryStatus, Driver, DriverAvailability, GlobalOrder, Order, Paginated } from "@/types";
 
 export async function listAddresses() {
   const data = await apiGet<Paginated<Address>>("/orders/addresses/");
@@ -33,12 +33,45 @@ export function getOrder(id: string) {
   return apiGet<Order>(`/orders/${id}/`);
 }
 
+/** Commandes globales multi-boutiques du client courant. */
+export async function listGlobalOrders() {
+  const data = await apiGet<Paginated<GlobalOrder>>("/orders/global-orders/");
+  return data.results;
+}
+
+export function getGlobalOrder(id: string) {
+  return apiGet<GlobalOrder>(`/orders/global-orders/${id}/`);
+}
+
+export function cancelGlobalOrder(id: string) {
+  return apiPost<GlobalOrder>(`/orders/global-orders/${id}/cancel/`);
+}
+
+/** Crée la commande. Sans `store` dans le payload (multi-boutiques), le
+ * backend déduit les boutiques des articles et renvoie une `GlobalOrder`. */
 export function checkout(payload: CheckoutPayload) {
-  return apiPost<Order>("/orders/checkout/", payload);
+  return apiPost<Order | GlobalOrder>("/orders/checkout/", payload);
 }
 
 export function cancelOrder(id: string) {
   return apiPost<Order>(`/orders/${id}/cancel/`);
+}
+
+/** Suivi de commande sans connexion (invité) — par référence ou id + email
+ * (POST /orders/track/, spec §16 « achat sans compte »). */
+export function trackOrder(reference: string, email: string) {
+  return apiPost<Order | GlobalOrder>("/orders/track/", { reference, email }, { auth: false });
+}
+
+/** Tarif de livraison côté serveur AVANT paiement, pour un panier
+ * multi-boutiques (frais de collecte + distance réellement calculés et
+ * affichés ; jamais calculés dans le navigateur). */
+export async function deliveryCalculate(payload: {
+  items: { product_variant: string; quantity: number }[];
+  address: string;
+  delivery_type: "pickup" | "standard" | "express";
+}) {
+  return apiPost<DeliveryQuote>("/orders/delivery-calculate/", payload);
 }
 
 export async function getDeliveryQuote(payload: {
@@ -50,9 +83,25 @@ export async function getDeliveryQuote(payload: {
   return parseFloat(data.delivery_fee);
 }
 
-export async function listAvailableDrivers() {
-  const data = await apiGet<Paginated<Driver>>("/orders/drivers/");
-  return data.results;
+export async function listAvailableDrivers(storeId?: string) {
+  const data = await apiGet<Paginated<Driver> | Driver[]>(
+    `/orders/drivers/${storeId ? `?store=${storeId}` : ""}`,
+  );
+  return Array.isArray(data) ? data : data.results;
+}
+
+export async function registerDriver(payload: {
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  vehicle_type: string;
+}) {
+  return apiPost<Driver & { temporary_password: string }>("/orders/drivers/register/", payload);
+}
+
+export function updateMyDriverPosition(latitude: number | string, longitude: number | string) {
+  return apiPost<Driver>("/orders/drivers/me/position/", { latitude, longitude });
 }
 
 export function getMyDriverProfile() {
@@ -76,8 +125,53 @@ export function assignDriver(deliveryId: string, driverId: string) {
   return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/assign/`, { driver: driverId });
 }
 
+/** Meilleurs livreurs candidats pour une livraison donnée (Espace Partenaire). */
+export async function suggestDrivers(deliveryId: string, limit = 5) {
+  return apiGet<{ drivers: Driver[]; message?: string }>(`/orders/deliveries/${deliveryId}/suggest/?limit=${limit}`);
+}
+
+/** Le livreur accepte la mission qui lui est affectée. */
+export function acceptDelivery(deliveryId: string) {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/accept/`);
+}
+
+/** Le livreur refuse la mission (motif obligatoire) — redevient affectable. */
+export function refuseDelivery(deliveryId: string, reason: string, comment = "") {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/refuse/`, { reason, comment });
+}
+
+/** Le livreur signale un échec de livraison (motif + commentaire obligatoires). */
+export function failDelivery(deliveryId: string, reason: string, comment = "") {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/fail/`, { reason, comment });
+}
+
+/** Demande de retour du colis au vendeur. */
+export function requestDeliveryReturn(deliveryId: string, reason: string, comment = "") {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/return/`, { reason, comment });
+}
+
+/** Le retour est terminé : colis rendu au vendeur. */
+export function completeDeliveryReturn(deliveryId: string, comment = "") {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/return/complete/`, { comment });
+}
+
+/** Timeline complète (spec §28) — pour l'Espace Partenaire / livreur. */
+export function deliveryEventsHistory(deliveryId: string) {
+  return apiGet<DeliveryEvent[]>(`/orders/deliveries/${deliveryId}/events-history/`);
+}
+
 export function updateDeliveryStatus(deliveryId: string, status: DeliveryStatus) {
-  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/status/`, { status });
+  return apiPost<Delivery & { confirmation_code?: string }>(`/orders/deliveries/${deliveryId}/status/`, { status });
+}
+
+/** Le client (ou l'admin) valide la réception avec le code OTP remis par le livreur. */
+export function confirmDelivery(deliveryId: string, code: string) {
+  return apiPost<Delivery>(`/orders/deliveries/${deliveryId}/confirm/`, { code });
+}
+
+/** Le livreur affecté (ou l'admin) régénère le code de confirmation (perdu/expiré). */
+export function regenerateDeliveryOtp(deliveryId: string) {
+  return apiPost<Delivery & { confirmation_code: string }>(`/orders/deliveries/${deliveryId}/regenerate-otp/`);
 }
 
 export function shareDeliveryPosition(deliveryId: string, latitude: number, longitude: number) {

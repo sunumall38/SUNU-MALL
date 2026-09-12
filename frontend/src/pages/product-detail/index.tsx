@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { CheckCircle2, Heart, ImageOff, MessageSquare, PackageX, ShoppingCart, TriangleAlert } from "lucide-react";
+import { BadgeCheck, CheckCircle2, Heart, ImageOff, MessageSquare, PackageX, ShoppingCart, TriangleAlert } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
-import * as shoppingApi from "@/api/shopping";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Textarea } from "@/components/ui/Textarea";
@@ -14,8 +13,9 @@ import { StarRating } from "@/components/ui/StarRating";
 import { QuantityStepper } from "@/components/marketplace/QuantityStepper";
 import { ProductRail } from "@/components/marketplace/ProductRail";
 import { useAuthStore } from "@/store/authStore";
-import { useGuestCheckoutStore } from "@/store/guestCheckoutStore";
 import { useRecentlyViewedStore } from "@/store/recentlyViewedStore";
+import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
 import { ApiError } from "@/lib/api";
 import { cn, formatDate, formatPrice } from "@/lib/utils";
 
@@ -23,8 +23,10 @@ export default function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const openGuestCheckout = useGuestCheckoutStore((s) => s.open);
   const addRecentlyViewed = useRecentlyViewedStore((s) => s.addProduct);
+  const addCartItem = useCartStore((s) => s.addItem);
+  const isFav = useWishlistStore((s) => s.has(id ?? ""));
+  const toggleFavorite = useWishlistStore((s) => s.toggleItem);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [activeImage, setActiveImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
@@ -71,11 +73,15 @@ export default function ProductDetailPage() {
   const hasReviewed = !!user && !!reviews?.some((r) => r.user === user.id);
 
   async function addToCart() {
-    if (!variant) return;
+    if (!product || !variant) return;
     setAdding(true);
     setFeedback(null);
     try {
-      await shoppingApi.addCartItem(variant.id, quantity);
+      await addCartItem(variant.id, quantity, {
+        product_name: product.name,
+        unit_price: variant.price,
+        store: product.store,
+      });
       setFeedback({ type: "success", text: "Ajouté au panier !" });
     } catch {
       setFeedback({ type: "error", text: "Impossible d'ajouter au panier." });
@@ -85,23 +91,18 @@ export default function ProductDetailPage() {
   }
 
   function handleAddToCart() {
-    if (!user) {
-      openGuestCheckout(addToCart);
-      return;
-    }
     addToCart();
   }
 
   async function handleAddToWishlist() {
-    if (!user) {
-      navigate(`/login?next=/product/${id}`);
-      return;
-    }
     try {
-      await shoppingApi.addWishlistItem(product!.id);
-      setFeedback({ type: "success", text: "Ajouté à la wishlist !" });
+      await toggleFavorite(product!.id, {
+        product_name: product!.name,
+        product_price: variant?.price ?? product!.base_price,
+      });
+      setFeedback({ type: "success", text: isFav ? "Retiré de la wishlist." : "Ajouté à la wishlist !" });
     } catch {
-      setFeedback({ type: "error", text: "Impossible d'ajouter à la wishlist." });
+      setFeedback({ type: "error", text: "Impossible de mettre à jour la wishlist." });
     }
   }
 
@@ -174,7 +175,10 @@ export default function ProductDetailPage() {
         </div>
 
         <div className="flex flex-col gap-4">
-          <p className="text-sm font-semibold text-muted-foreground">{product.store_name}</p>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+            {product.store_name}
+            {product.store_is_verified && <BadgeCheck className="h-4 w-4 text-green-600" aria-label="Vendeur vérifié" />}
+          </p>
           <h1 className="font-display text-2xl font-extrabold leading-tight text-gray-900 md:text-3xl">{product.name}</h1>
           {reviews && reviews.length > 0 && (
             <div className="flex items-center gap-2">
@@ -217,8 +221,13 @@ export default function ProductDetailPage() {
               <ShoppingCart className="h-4 w-4" />
               {isAvailable ? "Ajouter au panier" : "Indisponible"}
             </Button>
-            <Button variant="secondary" onClick={handleAddToWishlist} aria-label="Ajouter à la wishlist">
-              <Heart className="h-4 w-4" />
+            <Button
+              variant="secondary"
+              onClick={handleAddToWishlist}
+              aria-label={isFav ? "Retirer de la wishlist" : "Ajouter à la wishlist"}
+              aria-pressed={isFav}
+            >
+              <Heart className={cn("h-4 w-4", isFav && "fill-orange text-orange")} />
             </Button>
           </div>
 

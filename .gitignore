@@ -6,6 +6,7 @@
 *.key
 infra/env/
 infra/volumes/
+infra/logs/
 docs/Mot de passe*.txt
 backend/celerybeat-schedule
 backend/config/settings/sqlite_test.py
@@ -22,15 +23,15 @@ htmlcov/
 venv/
 .venv/
 
-# ===== Node / JS / TS (frontend, mobile) =====
+# ===== Node / JS / TS (frontend) =====
 node_modules/
 .next/
 dist/
 build/
-.expo/
 *.tsbuildinfo
 npm-debug.log*
 yarn-error.log*
+frontend/vite.log
 
 # ===== Docker =====
 *.pid
@@ -46,3 +47,6 @@ infra/monitoring/grafana/data/
 docs/commandes git.md
 docs/Une PR (Pull Request) est une deman.txt
 backend/pyrefly.toml
+
+# ===== Rapports générés (admin finance) =====
+backend/reports/

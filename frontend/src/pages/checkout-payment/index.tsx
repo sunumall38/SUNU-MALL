@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { CheckCircle2, CreditCard, FlaskConical, TriangleAlert, XCircle } from "lucide-react";
+import { CheckCircle2, FlaskConical, TriangleAlert, XCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
 import * as ordersApi from "@/api/orders";
 import * as paymentsApi from "@/api/payments";
 import { useCheckoutStore } from "@/store/checkoutStore";
 import { formatPrice } from "@/lib/utils";
-import { ApiError } from "@/lib/api";
-import type { Order } from "@/types";
+import { apiErrorMessage, ApiError } from "@/lib/api";
+import type { CheckoutPayload, GlobalOrder, Order } from "@/types";
 import { PAYMENT_METHODS } from "@/lib/paymentMethods";
+import { CardPaymentForm } from "@/components/checkout/CardPaymentForm";
+import { isCardComplete, type CardDetails } from "@/components/checkout/cardValidation";
 
 const METHODS = PAYMENT_METHODS;
 
@@ -18,15 +21,36 @@ export default function CheckoutPaymentPage() {
   const { storeId, address, items, deliveryMethod, deliveryFee, paymentMethod, setPaymentMethod, reset } = useCheckoutStore();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
+  const [createdOrder, setCreatedOrder] = useState<Order | GlobalOrder | null>(null);
   const [sandboxMessage, setSandboxMessage] = useState<string | null>(null);
+  const [redirectingTo, setRedirectingTo] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<"success" | "failed" | null>(null);
   const [paymentFailed, setPaymentFailed] = useState(false);
+  const [cardDetails, setCardDetails] = useState<CardDetails>({ holder: "", number: "", expiry: "", cvc: "" });
 
   useEffect(() => {
-    if (createdOrder?.payment) {
-      paymentsApi.initiatePayment(createdOrder.payment.id).then((res) => setSandboxMessage(res.message));
-    }
+    if (!createdOrder?.payment) return;
+    let cancelled = false;
+    paymentsApi
+      .initiatePayment(createdOrder.payment.id)
+      .then((res) => {
+        if (cancelled) return;
+        // Passerelle réelle qui affiche sa propre page de paiement : on
+        // délègue au navigateur (redirection vers Wave / Orange Money).
+        if (res.checkout_url) {
+          setRedirectingTo(res.checkout_url);
+          window.location.assign(res.checkout_url);
+        } else {
+          setSandboxMessage(res.message ?? "Mode test : aucune vraie transaction n'est envoyée.");
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(apiErrorMessage(err, "Impossible d'initier le paiement."));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [createdOrder]);
 
   // Une fois la commande créée, ces gardes ne doivent plus s'appliquer :
@@ -35,7 +59,7 @@ export default function CheckoutPaymentPage() {
   // le composant se re-rendait entre-temps sur cette page et redirigeait
   // vers /cart avant même que la navigation explicite n'ait eu lieu.
   if (!createdOrder) {
-    if (!storeId) return <Navigate to="/cart" replace />;
+    if (items.length === 0) return <Navigate to="/cart" replace />;
     if (!address) return <Navigate to="/checkout-address" replace />;
   }
 
@@ -46,16 +70,22 @@ export default function CheckoutPaymentPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const order = await ordersApi.checkout({
-        store: storeId!,
+      const payload: CheckoutPayload = {
         address: address!.id,
         delivery_type: deliveryMethod,
         payment_method: paymentMethod,
         items: items.map((i) => ({ product_variant: i.product_variant, quantity: i.quantity })),
-      });
+      };
+      // Boutique unique : le store est transmis (commande classique).
+      // Panier multi-boutiques : store absent → backend déduit les boutiques
+      // des articles et renvoie une GlobalOrder.
+      if (storeId) payload.store = storeId;
+      const order = await ordersApi.checkout(payload);
       setCreatedOrder(order);
     } catch (err) {
-      setError(err instanceof ApiError ? "Impossible de finaliser la commande." : "Erreur réseau.");
+      setError(
+        apiErrorMessage(err, err instanceof ApiError ? "Impossible de finaliser la commande." : "Erreur réseau."),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -67,8 +97,9 @@ export default function CheckoutPaymentPage() {
     try {
       await paymentsApi.sandboxConfirmPayment(createdOrder.payment.id, outcome);
       if (outcome === "success") {
+        const isGlobal = "number_of_stores" in createdOrder;
         reset();
-        navigate(`/order-confirmed?order=${createdOrder.id}`);
+        navigate(isGlobal ? `/order-confirmed?gorder=${createdOrder.id}` : `/order-confirmed?order=${createdOrder.id}`);
       } else {
         setPaymentFailed(true);
       }
@@ -78,6 +109,28 @@ export default function CheckoutPaymentPage() {
   }
 
   if (createdOrder) {
+    if (redirectingTo) {
+      return (
+        <div className="flex flex-col gap-6">
+          <h1 className="font-display text-2xl font-bold text-gray-900">Paiement</h1>
+          <Card className="flex flex-col items-center gap-4 py-8 text-center">
+            <Spinner label="Redirection vers la page de paiement sécurisée…" />
+            <p className="text-sm text-muted-foreground">
+              Votre commande n°{createdOrder.id.slice(0, 8)} ({formatPrice(createdOrder.total_amount)}) sera
+              confirmée dès que le paiement sera validé.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Si la redirection ne se fait pas automatiquement,{" "}
+              <a href={redirectingTo} className="underline text-orange" rel="noreferrer">
+                cliquez ici
+              </a>
+              .
+            </p>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col gap-6">
         <h1 className="font-display text-2xl font-bold text-gray-900">Paiement</h1>
@@ -155,6 +208,8 @@ export default function CheckoutPaymentPage() {
         ))}
       </div>
 
+      {paymentMethod === "card" && <CardPaymentForm onChange={setCardDetails} />}
+
       <Card className="flex flex-col gap-2 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Sous-total</span>
@@ -177,7 +232,7 @@ export default function CheckoutPaymentPage() {
         </div>
       )}
 
-      <Button onClick={handleConfirm} loading={submitting} className="w-full">
+      <Button onClick={handleConfirm} loading={submitting} className="w-full" disabled={paymentMethod === "card" && !isCardComplete(cardDetails)}>
         Confirmer et payer {formatPrice(total)}
       </Button>
     </div>

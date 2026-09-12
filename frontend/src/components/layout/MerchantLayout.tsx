@@ -1,6 +1,7 @@
-import { BarChart3, LayoutDashboard, Megaphone, Package, PlusCircle, Radio, Settings, Store as StoreIcon } from "lucide-react";
+import { BarChart3, Headset, LayoutDashboard, Megaphone, Package, PlusCircle, Radio, Settings, Store as StoreIcon, Wallet } from "lucide-react";
 import { RoleGuard } from "@/components/auth/RoleGuard";
-import { DashboardShell, type DashboardNavItem } from "@/components/layout/DashboardShell";
+import { MerchantKycGate } from "@/components/kyc/MerchantKycGate";
+import type { DashboardNavItem } from "@/components/layout/DashboardShell";
 
 const nav: DashboardNavItem[] = [
   { to: "/merchant", label: "Tableau de bord", icon: <LayoutDashboard className="h-4 w-4" /> },
@@ -8,15 +9,19 @@ const nav: DashboardNavItem[] = [
   { to: "/store-settings", label: "Paramètres", icon: <Settings className="h-4 w-4" /> },
   { to: "/catalog", label: "Catalogue", icon: <Package className="h-4 w-4" /> },
   { to: "/add-product", label: "Ajouter un produit", icon: <PlusCircle className="h-4 w-4" /> },
-  { to: "/subscriptions", label: "Abonnements", icon: <Megaphone className="h-4 w-4" /> },
+  { to: "/subscriptions", label: "Mon abonnement", icon: <Megaphone className="h-4 w-4" /> },
+  { to: "/offers", label: "Nos offres", icon: <Megaphone className="h-4 w-4" /> },
+  { to: "/promotions", label: "Promotions", icon: <Megaphone className="h-4 w-4" /> },
   { to: "/analytics", label: "Analytics", icon: <BarChart3 className="h-4 w-4" /> },
   { to: "/live-sales", label: "Ventes en direct", icon: <Radio className="h-4 w-4" /> },
+  { to: "/merchant-wallet", label: "Portefeuille", icon: <Wallet className="h-4 w-4" /> },
+  { to: "/support", label: "Support", icon: <Headset className="h-4 w-4" /> },
 ];
 
 export function MerchantLayout() {
   return (
     <RoleGuard roles={["merchant"]}>
-      <DashboardShell nav={nav} title="Espace commerçant" />
+      <MerchantKycGate nav={nav} title="Espace commerçant" />
     </RoleGuard>
   );
 }

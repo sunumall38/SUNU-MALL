@@ -6,9 +6,12 @@ export function listPayments(params?: { page?: number }) {
   return apiGet<Paginated<Payment>>(`/payments/${qs}`);
 }
 
-export function listRefunds(params?: { page?: number }) {
-  const qs = params?.page ? `?page=${params.page}` : "";
-  return apiGet<Paginated<Refund>>(`/payments/refunds/${qs}`);
+export function listRefunds(params?: { page?: number; status?: string }) {
+  const qs = new URLSearchParams();
+  if (params?.page) qs.set("page", String(params.page));
+  if (params?.status) qs.set("status", params.status);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  return apiGet<Paginated<Refund>>(`/payments/refunds/${suffix}`);
 }
 
 export function processRefund(refundId: number) {
@@ -18,6 +21,9 @@ export function processRefund(refundId: number) {
 export interface InitiatePaymentResult {
   sandbox: boolean;
   provider_ref: string;
+  /** URL de paiement hébergée (Wave wave_launch_url, Orange payment_url) — absente en sandbox. */
+  checkout_url?: string;
+  method?: string;
   message: string;
 }
 

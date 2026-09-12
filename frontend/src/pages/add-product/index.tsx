@@ -7,6 +7,7 @@ import { ImagePlus, Sparkles, Store as StoreIcon, TriangleAlert } from "lucide-r
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
 import * as iaApi from "@/api/ia";
+import * as monetizationApi from "@/api/monetization";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Select } from "@/components/ui/Select";
@@ -15,6 +16,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { ApiError } from "@/lib/api";
+import { ProductLimitBanner } from "@/components/merchant/ProductLimitBanner";
 
 const schema = z.object({
   store: z.string().min(1, "Boutique requise"),
@@ -22,7 +24,7 @@ const schema = z.object({
   name: z.string().min(2, "Nom du produit requis"),
   description: z.string().optional(),
   base_price: z.coerce.number().positive("Prix invalide"),
-  sku: z.string().min(1, "SKU requis"),
+  sku: z.string().optional(),
   initial_quantity: z.coerce.number().int().min(0).default(100),
 });
 type FormValues = z.infer<typeof schema>;
@@ -31,6 +33,7 @@ export default function AddProductPage() {
   const navigate = useNavigate();
   const { data: own, loading: loadingStores } = useAsync(() => catalogApi.listMyStores(), []);
   const { data: categories } = useAsync(() => catalogApi.listCategories(), []);
+  const { data: account } = useAsync(() => monetizationApi.getMySubscriptionState(), []);
   const [error, setError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -92,7 +95,7 @@ export default function AddProductPage() {
       });
       await catalogApi.createVariant({
         product: product.id,
-        sku: values.sku,
+        ...(values.sku?.trim() ? { sku: values.sku.trim() } : {}),
         price: values.base_price,
         initial_quantity: values.initial_quantity,
       });
@@ -126,6 +129,7 @@ export default function AddProductPage() {
   return (
     <div className="max-w-xl">
       <h1 className="mb-6 font-display text-2xl font-bold text-gray-900">Ajouter un produit</h1>
+      <ProductLimitBanner account={account} className="mb-4" />
       <Card>
         <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
           <div>
@@ -177,9 +181,8 @@ export default function AddProductPage() {
               </option>
             ))}
           </Select>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <Input label="Prix (XOF)" type="number" step="1" {...register("base_price")} error={errors.base_price?.message} />
-            <Input label="SKU" {...register("sku")} error={errors.sku?.message} />
             <Input
               label="Stock initial"
               type="number"
@@ -188,6 +191,15 @@ export default function AddProductPage() {
               error={errors.initial_quantity?.message}
             />
           </div>
+          <Input
+            label="Référence interne (facultatif)"
+            placeholder="Votre propre code, ex. REF-001"
+            {...register("sku")}
+            error={errors.sku?.message}
+          />
+          <p className="-mt-1 text-[11px] text-muted-foreground">
+            Pour votre gestion de stock — laissez vide pour qu&apos;un code soit généré automatiquement.
+          </p>
           {error && (
             <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-red-50 px-3.5 py-2.5 text-sm text-danger">
               <TriangleAlert className="h-4 w-4 shrink-0" />

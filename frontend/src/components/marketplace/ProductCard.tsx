@@ -1,19 +1,17 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Heart, ImageOff, Loader2, Plus } from "lucide-react";
+import { Link } from "react-router-dom";
+import { BadgeCheck, Heart, ImageOff, Loader2, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
-import { useAuthStore } from "@/store/authStore";
-import { useGuestCheckoutStore } from "@/store/guestCheckoutStore";
-import * as shoppingApi from "@/api/shopping";
+import { useCartStore } from "@/store/cartStore";
+import { useWishlistStore } from "@/store/wishlistStore";
 import type { Product } from "@/types";
 import { formatPrice } from "@/lib/utils";
 
 export function ProductCard({ product, sponsored }: { product: Product; sponsored?: boolean }) {
-  const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const openGuestCheckout = useGuestCheckoutStore((s) => s.open);
+  const addCartItem = useCartStore((s) => s.addItem);
+  const isFav = useWishlistStore((s) => s.has(product.id));
+  const toggleFavorite = useWishlistStore((s) => s.toggleItem);
   const [adding, setAdding] = useState(false);
-  const [fav, setFav] = useState(false);
   const image = product.images[0]?.url;
 
   const variants = product.variants ?? [];
@@ -27,7 +25,11 @@ export function ProductCard({ product, sponsored }: { product: Product; sponsore
     if (!defaultVariant) return;
     setAdding(true);
     try {
-      await shoppingApi.addCartItem(defaultVariant.id, 1);
+      await addCartItem(defaultVariant.id, 1, {
+        product_name: product.name,
+        unit_price: defaultVariant.price,
+        store: product.store,
+      });
     } finally {
       setAdding(false);
     }
@@ -35,28 +37,18 @@ export function ProductCard({ product, sponsored }: { product: Product; sponsore
 
   function handleAddToCart(e: React.MouseEvent) {
     e.preventDefault();
-    if (!user) {
-      openGuestCheckout(addToCart);
-      return;
-    }
     addToCart();
   }
 
   async function handleToggleFavorite(e: React.MouseEvent) {
     e.preventDefault();
-    if (!user) {
-      navigate(`/login?next=/product/${product.id}`);
-      return;
-    }
-    setFav((v) => !v);
     try {
-      if (!fav) {
-        await shoppingApi.addWishlistItem(product.id);
-      } else {
-        await shoppingApi.removeWishlistItem(product.id);
-      }
+      await toggleFavorite(product.id, {
+        product_name: product.name,
+        product_price: String(minPrice),
+      });
     } catch {
-      setFav((v) => !v);
+      // Ignorer : le store gère l'état de façon réactive.
     }
   }
 
@@ -92,16 +84,21 @@ export function ProductCard({ product, sponsored }: { product: Product; sponsore
 
         <button
           onClick={handleToggleFavorite}
-          aria-label={fav ? "Retirer des favoris" : "Ajouter aux favoris"}
-          aria-pressed={fav}
+          aria-label={isFav ? "Retirer des favoris" : "Ajouter aux favoris"}
+          aria-pressed={isFav}
           className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full border border-gray-100 bg-white shadow transition-colors hover:border-orange"
         >
-          <Heart className={fav ? "h-4 w-4 fill-orange text-orange" : "h-4 w-4 text-gray-400"} />
+          <Heart className={isFav ? "h-4 w-4 fill-orange text-orange" : "h-4 w-4 text-gray-400"} />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-1 p-3">
-        <p className="truncate text-[11px] text-gray-400">{product.store_name}</p>
+        <p className="flex items-center gap-1 truncate text-[11px] text-gray-400">
+          <span className="truncate">{product.store_name}</span>
+          {product.store_is_verified && (
+            <BadgeCheck className="h-3 w-3 shrink-0 text-green-600" aria-label="Vendeur vérifié" />
+          )}
+        </p>
         <p className="line-clamp-2 min-h-[2.5em] text-sm font-semibold leading-snug text-gray-800">{product.name}</p>
 
         <div className="mt-auto flex items-center justify-between pt-1">

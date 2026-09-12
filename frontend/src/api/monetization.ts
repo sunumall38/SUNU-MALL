@@ -1,5 +1,5 @@
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { Invoice, Notification, Paginated, Payment, SponsoredProduct, Subscription, SubscriptionPlan } from "@/types";
+import type { Invoice, Notification, Paginated, Payment, SponsoredProduct, Subscription, SubscriptionHistory, SubscriptionPlan } from "@/types";
 
 export async function listNotifications() {
   const data = await apiGet<Paginated<Notification>>("/monetization/notifications/");
@@ -14,6 +14,11 @@ export function markAllNotificationsRead() {
   return apiPost<void>("/monetization/notifications/read-all/");
 }
 
+/** Publie une notification rédigée par un admin (tous les comptes actifs ou un rôle). */
+export function broadcastNotification(payload: { subject: string; message: string; role?: string; channel?: string }) {
+  return apiPost<{ sent: number; role: string }>("/monetization/notifications/broadcast/", payload);
+}
+
 export async function listSubscriptionPlans() {
   const data = await apiGet<Paginated<SubscriptionPlan>>("/monetization/subscription-plans/");
   return data.results;
@@ -22,6 +27,21 @@ export async function listSubscriptionPlans() {
 export async function listSubscriptions() {
   const data = await apiGet<Paginated<Subscription>>("/monetization/subscriptions/");
   return data.results;
+}
+
+export interface SubscriptionState {
+  subscription: (Subscription & { plan_code: string; plan_name: string; days_left: number; is_active: boolean; in_grace: boolean; price: string; billing_cycle: string }) | null;
+  has_active_subscription: boolean;
+  product_limit: number | null;
+  product_count: number;
+  products_remaining: number | null;
+  is_unlimited: boolean;
+  grace_period_days: number;
+}
+
+/** État complet « Mon abonnement » (formule, dates, limites produits). */
+export async function getMySubscriptionState() {
+  return apiGet<SubscriptionState>("/monetization/subscription/me/");
 }
 
 /**
@@ -37,6 +57,35 @@ export function subscribe(planId: string, paymentMethod: "wave" | "orange_money"
 
 export function cancelSubscription(id: string) {
   return apiPost<Subscription>(`/monetization/subscriptions/${id}/cancel/`);
+}
+
+/**
+ * Prépare le renouvellement de la formule courante : un paiement en attente
+ * est créé (jamais d'activation directe) puis confirmé via le webhook/sandbox.
+ */
+export function renewSubscription(paymentMethod: "wave" | "orange_money" | "card" = "wave") {
+  return apiPost<{ payment: Payment }>("/monetization/subscriptions/renew/", { payment_method: paymentMethod });
+}
+
+/**
+ * Monte/descend de formule : un paiement en attente est créé pour le nouveau
+ * plan ; le changement n'est appliqué qu'après confirmation backend du paiement.
+ */
+export function changePlan(planCode: string, paymentMethod: "wave" | "orange_money" | "card" = "wave") {
+  return apiPost<{ payment: Payment }>("/monetization/subscriptions/change-plan/", {
+    plan_code: planCode,
+    payment_method: paymentMethod,
+  });
+}
+
+/** Historique immuable du cycle de vie de l'abonnement du vendeur. */
+export async function listSubscriptionHistory() {
+  return apiGet<SubscriptionHistory[]>("/monetization/subscriptions/history/");
+}
+
+/** Paiements d'abonnement du vendeur (souscription, renouvellement, changement). */
+export async function listSubscriptionPayments() {
+  return apiGet<Payment[]>("/monetization/subscriptions/payments/");
 }
 
 export async function listInvoices() {

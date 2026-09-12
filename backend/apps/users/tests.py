@@ -168,21 +168,23 @@ class RBACAPITests(TestCase):
         """Vérifie les accès du rôle merchant aux endpoints protégés."""
         self.client.force_authenticate(user=self.merchant_user)
 
-        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_200_OK)
+        # La liste des utilisateurs est réservée à l'admin (anti-énumération :
+        # un commerçant ne doit pas pouvoir lister emails/téléphones des autres).
+        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_403_FORBIDDEN)
         self.assert_admin_only_actions_forbidden(self.merchant_user)
 
     def test_client_access_to_protected_endpoints(self):
         """Vérifie les accès du rôle client aux endpoints protégés."""
         self.client.force_authenticate(user=self.client_user)
 
-        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_403_FORBIDDEN)
         self.assert_admin_only_actions_forbidden(self.client_user)
 
     def test_driver_access_to_protected_endpoints(self):
         """Vérifie les accès du rôle driver aux endpoints protégés."""
         self.client.force_authenticate(user=self.driver_user)
 
-        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(self.user_list_url).status_code, status.HTTP_403_FORBIDDEN)
         self.assert_admin_only_actions_forbidden(self.driver_user)
 
     def test_unauthenticated_user_cannot_access_protected_endpoints(self):
@@ -207,3 +209,73 @@ class RBACAPITests(TestCase):
         self.assertIn('roles', response.data)
         self.assertIn('permissions', response.data)
         self.assertIn('admin', response.data['roles'])
+
+
+class CreateAdminCommandTests(TestCase):
+    """Tests de la commande `manage.py create_admin`."""
+
+    def setUp(self):
+        from django.core.management import call_command
+        self.call_command = call_command
+
+    def test_creates_verified_admin_with_role(self):
+        self.call_command(
+            'create_admin',
+            email='admin@sunumall.com',
+            password='Admin@12345',
+            username='admin@sunumall.com',
+        )
+        user = User.objects.get(email='admin@sunumall.com')
+        self.assertTrue(user.is_verified)
+        self.assertTrue(user.is_active)
+        self.assertTrue(user.has_role(Role.RoleName.ADMIN))
+        self.assertTrue(user.check_password('Admin@12345'))
+
+    def test_is_idempotent_and_restores_verified(self):
+        user = User.objects.create_user(
+            username='admin@sunumall.com', email='admin@sunumall.com',
+            password='oldpass123', is_verified=False,
+        )
+        self.call_command(
+            'create_admin', email='admin@sunumall.com', password='newpass123',
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.is_verified)
+        self.assertTrue(user.check_password('newpass123'))
+        self.assertEqual(User.objects.filter(email='admin@sunumall.com').count(), 1)
+
+    def test_super_admin_flag_grants_both_roles(self):
+        self.call_command(
+            'create_admin', email='admin@sunumall.com', password='Admin@12345', super_admin=True,
+        )
+        user = User.objects.get(email='admin@sunumall.com')
+        self.assertTrue(user.has_role(Role.RoleName.ADMIN))
+        self.assertTrue(user.has_role(Role.RoleName.SUPER_ADMIN))
+
+    def test_specialized_role_grants_only_that_admin_role(self):
+        self.call_command(
+            'create_admin', email='admin.kyc@sunumall.com',
+            password='Admin@12345', roles=['admin_kyc'],
+        )
+        user = User.objects.get(email='admin.kyc@sunumall.com')
+        self.assertTrue(user.has_role(Role.RoleName.ADMIN_KYC))
+        self.assertFalse(user.has_role(Role.RoleName.ADMIN))
+        self.assertFalse(user.has_role(Role.RoleName.SUPER_ADMIN))
+
+    def test_multiple_roles_and_super_admin_flag(self):
+        self.call_command(
+            'create_admin', email='admin.finance@sunumall.com',
+            password='Admin@12345', roles=['admin_finance', 'admin_support'],
+            super_admin=True,
+        )
+        user = User.objects.get(email='admin.finance@sunumall.com')
+        self.assertTrue(user.has_role(Role.RoleName.ADMIN_FINANCE))
+        self.assertTrue(user.has_role(Role.RoleName.ADMIN_SUPPORT))
+        self.assertTrue(user.has_role(Role.RoleName.SUPER_ADMIN))
+        self.assertFalse(user.has_role(Role.RoleName.ADMIN))
+
+    def test_role_all_grants_every_admin_role(self):
+        self.call_command('create_admin', email='admin.all@sunumall.com', roles=['all'])
+        user = User.objects.get(email='admin.all@sunumall.com')
+        for role in Role.ADMIN_ROLES:
+            self.assertTrue(user.has_role(role), f"rôle {role} manquant")

@@ -19,7 +19,7 @@ export function register(payload: {
   last_name: string;
   phone: string;
   role_name?: "client" | "merchant" | "driver";
-}) {
+} | FormData) {
   return apiPost<AuthResponse>("/auth/register/", payload, { auth: false });
 }
 
@@ -33,6 +33,14 @@ export function guestCheckout(payload: { email: string; first_name: string; last
 
 export function setPassword(password: string) {
   return apiPost<{ message: string }>("/auth/set-password/", { password });
+}
+
+export function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}) {
+  return apiPost<{ message: string }>("/auth/change-password/", payload);
 }
 
 export function verifyEmail(uid: string, token: string) {

@@ -2,19 +2,13 @@
 Paiements, commissions, transactions et remboursements.
 """
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db import models
 from django.utils import timezone
 from apps.orders.models import Order
-from apps.monetization.models import Invoice, Subscription
-
-
-class PaymentService:
-    @staticmethod
-    def process_order_payment(order, amount, method):
-        # Implement payment processing logic here
-        pass
+from apps.monetization.models import Invoice, Subscription, SubscriptionHistory
 
 
 class CommissionRule(models.Model):
@@ -48,17 +42,32 @@ class Payment(models.Model):
         REFUNDED = 'refunded', 'Refunded'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # Un paiement règle soit une commande, soit un abonnement — jamais les
-    # deux (contrainte ci-dessous) : d'où les deux FK optionnelles plutôt
-    # qu'une seule relation polymorphe, plus simple à requêter/valider.
+    # Un paiement règle soit une commande, soit une commande globale
+    # multi-boutiques, soit un abonnement — jamais deux à la fois (contrainte
+    # ci-dessous) : d'où les FK optionnelles plutôt qu'une relation polymorphe.
+    # Un abonnement peut avoir PLUSIEURS paiements (souscription initiale,
+    # renouvellement, changement de formule) : FK, pas OneToOne.
     order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='payment', null=True, blank=True)
-    subscription = models.OneToOneField(
-        Subscription, on_delete=models.CASCADE, related_name='payment', null=True, blank=True
+    global_order = models.ForeignKey(
+        'orders.GlobalOrder', on_delete=models.CASCADE, related_name='payments', null=True, blank=True
+    )
+    subscription = models.ForeignKey(
+        Subscription, on_delete=models.CASCADE, related_name='payments', null=True, blank=True
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3, default="XOF")
     method = models.CharField(max_length=100)
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
     provider_ref = models.CharField(max_length=255, blank=True)
+    # Intent du paiement d'abonnement, posé au moment de sa création par le
+    # backend — jamais par le client :
+    #   {"action": "subscribe"}            nouvelle souscription
+    #   {"action": "renew"}                renouvellement de la formule courante
+    #   {"action": "change_plan",
+    #    "plan_code": "PRO"}               montée/descente de formule
+    # Permet à mark_succeeded de savoir quoi faire à la confirmation sans
+    # qu'aucune valeur décisionnelle ne vienne du frontend.
+    metadata = models.JSONField(default=dict)
     paid_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -68,39 +77,135 @@ class Payment(models.Model):
         constraints = [
             models.CheckConstraint(
                 check=(
-                    models.Q(order__isnull=False, subscription__isnull=True)
-                    | models.Q(order__isnull=True, subscription__isnull=False)
+                    models.Q(order__isnull=False, global_order__isnull=True, subscription__isnull=True)
+                    | models.Q(order__isnull=True, global_order__isnull=False, subscription__isnull=True)
+                    | models.Q(order__isnull=True, global_order__isnull=True, subscription__isnull=False)
                 ),
-                name='payment_targets_order_xor_subscription',
+                name='payment_targets_one_billing_object',
             )
         ]
 
     def mark_succeeded(self):
+        """Marque le paiement réussi et déclenche enfin le traitement métier.
+
+        Idempotent : un second appel (webhook rejoué, sandbox-confirm
+        rappelée) ne ré-exécute rien — la commission d'une commande n'est
+        donc jamais créditée deux fois (spec commission §27-§28), et un
+        renouvellement d'abonnement n'allonge jamais deux fois la période.
+        """
+        if self.status == self.Status.SUCCESS:
+            return
         self.status = self.Status.SUCCESS
         self.paid_at = timezone.now()
-        self.save()
+        self.save(update_fields=["status", "paid_at"])
         if self.subscription_id:
             self._activate_subscription()
+            from apps.commissions.services import (
+                register_subscription_revenue, sync_plan_from_subscription,
+            )
+            sync_plan_from_subscription(self.subscription)
+            register_subscription_revenue(self.subscription, self.amount)
+        elif self.global_order_id:
+            # Paiement global multi-boutiques : une transaction globale est
+            # tracée, puis la commission de chaque sous-commande est réglée
+            # individuellement (par vendeur) — jamais deux fois.
+            Transaction.objects.create(
+                payment=self,
+                type=Transaction.Type.SALE,
+                payee_type="global_order",
+                payee_id=self.global_order_id,
+                amount=self.amount,
+            )
+            from apps.commissions.services import settle_commission_for_order
+
+            for sub_order in self.global_order.orders.filter(status="pending"):
+                sub_order.change_status(sub_order.Status.PAID)
+                settle_commission_for_order(sub_order)
+            if self.global_order.status == "pending":
+                self.global_order.status = "paid"
+                self.global_order.save(update_fields=["status"])
         else:
             Transaction.create_for_payment(self)
+            from apps.commissions.services import settle_commission_for_order
+            settle_commission_for_order(self.order)
 
     def _activate_subscription(self):
         subscription = self.subscription
-        subscription.status = Subscription.Status.ACTIVE
-        subscription.save(update_fields=["status"])
+        intent = self.metadata or {}
+        action = intent.get("action", "subscribe")
         today = timezone.now().date()
+
+        if action == "renew":
+            subscription.renew()
+        elif action == "change_plan":
+            from apps.monetization.models import SubscriptionPlan
+
+            plan = SubscriptionPlan.objects.filter(
+                code=intent.get("plan_code"), is_active=True
+            ).first()
+            # Un intent invalide (plan_code inconnu) ne casse jamais une
+            # activation : on conserve la formule courante.
+            subscription.change_plan(plan or subscription.plan)
+        elif subscription.status == Subscription.Status.PENDING:
+            # Souscription initiale : les dates ont été calculées à la
+            # création (jamais fournies par le client).
+            subscription.status = Subscription.Status.ACTIVE
+            subscription.save(update_fields=["status"])
+            subscription.record_history(
+                SubscriptionHistory.Action.ACTIVATED,
+                old_plan=subscription.plan, new_plan=subscription.plan,
+                old_end_date=subscription.ends_at, new_end_date=subscription.ends_at,
+            )
+            subscription.notify_activated()
+        else:
+            # Réactivation d'un abonnement échu/annulé : nouvelle période.
+            subscription.starts_at = today
+            subscription.ends_at = today + timedelta(days=subscription.plan.duration_days or 30)
+            subscription.status = Subscription.Status.ACTIVE
+            subscription.save()
+            subscription.record_history(
+                SubscriptionHistory.Action.ACTIVATED,
+                old_plan=subscription.plan, new_plan=subscription.plan,
+                old_end_date=None, new_end_date=subscription.ends_at,
+            )
+            subscription.notify_activated()
+
         invoice = Invoice.objects.create(
             subscription=subscription, amount=self.amount,
             status=Invoice.Status.ISSUED, issued_at=today, due_at=today,
         )
         invoice.mark_paid()
-        subscription.notify_activated()
 
     def mark_failed(self):
         self.status = self.Status.FAILED
         self.save()
         if self.subscription_id:
-            self.subscription.cancel()
+            # Une souscription initiale en attente est annulée ; un
+            # renouvellement/changement de formule échoué ne coupe JAMAIS
+            # l'abonnement déjà actif (le client garde sa formule).
+            if self.subscription.status == Subscription.Status.PENDING:
+                self.subscription.cancel()
+            else:
+                self._notify_payment_failed()
+
+    def _notify_payment_failed(self):
+        from apps.monetization.models import Notification
+
+        subscription = self.subscription
+        user = subscription.subscriber_user()
+        if not user:
+            return
+        notification = Notification.objects.create(
+            user=user, channel=Notification.Channel.EMAIL,
+            subject=f"Paiement « {subscription.plan.name} » échoué",
+            message=(
+                f"Bonjour,\n\nLe paiement de votre abonnement "
+                f"« {subscription.plan.name} » ({self.amount} FCFA) a échoué. "
+                "Votre formule actuelle reste active. Réessayez depuis votre espace."
+            ),
+            metadata={"subscription_id": str(subscription.id), "payment_id": str(self.id)},
+        )
+        notification.send()
 
     def __str__(self):
         return f"Payment {self.id} - {self.order_id or self.subscription_id}"
@@ -171,6 +276,9 @@ class Refund(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        ordering = ['-created_at']
+
     def process(self):
         """
         Marque le remboursement traité : passe le paiement à "refunded",
@@ -194,6 +302,10 @@ class Refund(models.Model):
                 payee_type=original.payee_type, payee_id=original.payee_id,
                 amount=-original.amount,
             )
+
+        # Commission : contre-passe la vente (fonds vendeur + commission plateforme).
+        from apps.commissions.services import reverse_commission_for_refund
+        reverse_commission_for_refund(self)
 
         self._notify_customer()
 
