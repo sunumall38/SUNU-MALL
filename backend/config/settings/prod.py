@@ -27,7 +27,7 @@ ALLOWED_HOSTS = DJANGO_ALLOWED_HOSTS
 # TLS terminé par nginx : Django doit savoir que la requête arrive en https,
 # sinon SECURE_SSL_REDIRECT boucle (il redirige les requêtes qu'il croit en http).
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", default=True, cast=bool)
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000

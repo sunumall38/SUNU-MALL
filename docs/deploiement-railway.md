@@ -17,7 +17,8 @@ pourra être attachée à `develop` après fusion de la pull request.
 Avant le premier déploiement, renseigner dans chaque service applicatif :
 
 - `DJANGO_SECRET_KEY` : valeur aléatoire longue ;
-- `DJANGO_ALLOWED_HOSTS` : domaine Railway de l'API et domaine API final ;
+- `DJANGO_ALLOWED_HOSTS` : domaine Railway de l'API, domaine API final et
+  `healthcheck.railway.app` pour les contrôles de santé Railway ;
 - `CORS_ALLOWED_ORIGINS` : origine HTTPS exacte du frontend ;
 - `FRONTEND_URL` : URL publique du frontend ;
 - `BACKEND_URL` : URL publique de l'API, suffixée par `/api` ;

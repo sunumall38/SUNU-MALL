@@ -22,6 +22,9 @@ export default defineRailway(() => {
     CORS_ALLOWED_ORIGINS: preserve(),
     FRONTEND_URL: preserve(),
     BACKEND_URL: preserve(),
+    // Railway interroge le conteneur en HTTP pour ses healthchecks. Le TLS
+    // public reste terminé par son proxy et signalé via X-Forwarded-Proto.
+    SECURE_SSL_REDIRECT: "False",
     PAYMENT_SANDBOX: "True",
     POSTGRES_DB: database.env.PGDATABASE,
     POSTGRES_USER: database.env.PGUSER,
