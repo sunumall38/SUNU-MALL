@@ -29,10 +29,11 @@ def _s3_storage(endpoint_url=None):
     # réglage global AWS_S3_CUSTOM_DOMAIN (bucket public sunu-mall-media) et
     # les URLs KYC pointeraient vers le mauvais bucket.
     return S3Boto3Storage(
-        access_key=settings.AWS_ACCESS_KEY_ID,
-        secret_key=settings.AWS_SECRET_ACCESS_KEY,
-        endpoint_url=endpoint_url or settings.AWS_S3_ENDPOINT_URL,
-        region_name=getattr(settings, "AWS_S3_REGION_NAME", "us-east-1"),
+        access_key=settings.KYC_S3_ACCESS_KEY,
+        secret_key=settings.KYC_S3_SECRET_KEY,
+        endpoint_url=endpoint_url or settings.KYC_S3_ENDPOINT,
+        region_name=settings.KYC_S3_REGION,
+        addressing_style=settings.KYC_S3_ADDRESSING_STYLE,
         signature_version="s3v4",
         bucket_name=settings.KYC_STORAGE_BUCKET,
         default_acl=None,
@@ -83,7 +84,7 @@ def get_kyc_storage():
 def ensure_kyc_bucket():
     """Crée le bucket privé s'il n'existe pas encore (idempotent)."""
     storage = get_kyc_storage()
-    if settings.KYC_STORAGE_BACKEND == "fs":
+    if settings.KYC_STORAGE_BACKEND == "fs" or not settings.KYC_STORAGE_AUTO_CREATE:
         return
     try:
         storage.bucket.create()
@@ -135,7 +136,7 @@ def signed_url(stored_name):
     d'hôte après signature produirait un 403 SignatureDoesNotMatch.
     """
     public_endpoint = getattr(settings, "MINIO_PUBLIC_ENDPOINT", "") or ""
-    endpoint_url = settings.AWS_S3_ENDPOINT_URL
+    endpoint_url = settings.KYC_S3_ENDPOINT
     if public_endpoint:
         public = public_endpoint if "//" in public_endpoint else f"//{public_endpoint}"
         parts = urlsplit(public)

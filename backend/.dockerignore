@@ -18,13 +18,13 @@ venv/
 
 # Données locales, logs, médias
 *.sqlite3
-media/
-media_kyc/
-staticfiles/
-logs/
-celerybeat-schedule
-reports/
-backups/
+/media/
+/media_kyc/
+/staticfiles/
+/logs/
+/celerybeat-schedule
+/reports/
+/backups/
 
 # Frontend (jamais embarqué dans l'image backend)
 node_modules/

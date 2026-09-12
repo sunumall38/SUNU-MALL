@@ -127,11 +127,14 @@ AWS_SECRET_ACCESS_KEY = config("MINIO_SECRET_KEY", default="minioadmin")
 AWS_STORAGE_BUCKET_NAME = config("MINIO_BUCKET", default="sunu-mall")
 AWS_S3_ENDPOINT_URL = config("MINIO_ENDPOINT", default="http://minio:9000")
 AWS_S3_USE_SSL = config("MINIO_USE_SSL", default=False, cast=bool)
+AWS_S3_REGION_NAME = config("S3_REGION_NAME", default="us-east-1")
+AWS_S3_ADDRESSING_STYLE = config("S3_ADDRESSING_STYLE", default="path")
 # Le endpoint ci-dessus (nom de service Docker) n'est joignable que depuis
 # l'intérieur du réseau Docker. Pour que les URLs d'images générées soient
 # accessibles depuis le navigateur, on force le domaine public si fourni,
 # et on désactive la signature de requête (le bucket est en lecture publique).
-AWS_QUERYSTRING_AUTH = False
+AWS_QUERYSTRING_AUTH = config("S3_QUERYSTRING_AUTH", default=False, cast=bool)
+AWS_QUERYSTRING_EXPIRE = config("S3_QUERYSTRING_EXPIRE", default=3600, cast=int)
 AWS_DEFAULT_ACL = None
 _minio_public_endpoint = config("MINIO_PUBLIC_ENDPOINT", default="")
 # Exposé comme réglage public pour que le cache des URLs signées KYC puisse
@@ -155,6 +158,12 @@ KYC_STORAGE_BACKEND = config("KYC_STORAGE_BACKEND", default="s3")
 KYC_STORAGE_BUCKET = config("KYC_STORAGE_BUCKET", default="sunu-mall-private")
 KYC_STORAGE_LOCATION = config("KYC_STORAGE_LOCATION", default=str(BASE_DIR / "media_kyc"))
 KYC_PRESIGNED_URL_TTL = config("KYC_PRESIGNED_URL_TTL", default=300, cast=int)
+KYC_S3_ACCESS_KEY = config("KYC_S3_ACCESS_KEY", default=AWS_ACCESS_KEY_ID)
+KYC_S3_SECRET_KEY = config("KYC_S3_SECRET_KEY", default=AWS_SECRET_ACCESS_KEY)
+KYC_S3_ENDPOINT = config("KYC_S3_ENDPOINT", default=AWS_S3_ENDPOINT_URL)
+KYC_S3_REGION = config("KYC_S3_REGION", default=AWS_S3_REGION_NAME)
+KYC_S3_ADDRESSING_STYLE = config("KYC_S3_ADDRESSING_STYLE", default=AWS_S3_ADDRESSING_STYLE)
+KYC_STORAGE_AUTO_CREATE = config("KYC_STORAGE_AUTO_CREATE", default=True, cast=bool)
 
 # --- Commission et portefeuilles vendeurs (apps/commissions) ---
 # Durée de l'essai à 0 % de commission à partir de la création du compte (§3).
