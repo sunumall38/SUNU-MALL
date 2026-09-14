@@ -451,8 +451,9 @@ class AuthTests(TestCase):
             first_name='Test'
         )
 
-        send_verification_email(user)
+        sent = send_verification_email(user)
 
+        self.assertTrue(sent)
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].subject, "Vérifiez votre email - SUNU MALL")
         self.assertIn('/verify-email?uid=', mail.outbox[0].body)
