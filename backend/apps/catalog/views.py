@@ -19,6 +19,7 @@ from apps.kyc.models import SellerKYC
 from apps.kyc.utils import seller_account_active, seller_kyc_verified
 from apps.monetization import services as monetization_services
 from apps.monetization.services import PRODUCT_LIMIT_EXCEEDED_MESSAGE
+from .notifications import notify_admin_store_created
 
 
 def _active_product_limit(store):
@@ -420,7 +421,8 @@ class StoreViewSet(viewsets.ModelViewSet):
                 "Vous avez déjà une boutique sur Sunu Mall : 1 vendeur = 1 boutique. "
                 "Modifiez votre boutique existante ou supprimez-la pour en créer une nouvelle."
             )
-        serializer.save(owner=self.request.user)
+        store = serializer.save(owner=self.request.user)
+        notify_admin_store_created(store)
 
     def perform_update(self, serializer):
         store = self.get_object()

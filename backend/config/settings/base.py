@@ -354,6 +354,8 @@ EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=15, cast=int)
 EMAIL_FROM_CONFIGURED = config("DEFAULT_FROM_EMAIL", default="")
 DEFAULT_FROM_EMAIL = EMAIL_FROM_CONFIGURED or "SUNU MALL <noreply@sunumall.com>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Boîte de l'équipe marketplace qui reçoit les nouvelles demandes de boutique.
+ADMIN_NOTIFICATION_EMAIL = config("ADMIN_NOTIFICATION_EMAIL", default="").strip()
 
 # --- Paiement (Wave / Orange Money) ---
 # PAYMENT_SANDBOX doit être explicitement mis à False en production ET en

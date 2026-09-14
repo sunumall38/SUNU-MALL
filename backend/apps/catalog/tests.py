@@ -8,7 +8,9 @@ infrastructure S3 — ce qui les rend exécutables tel quel en CI.
 """
 import shutil
 import tempfile
+from unittest.mock import patch
 
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from rest_framework import status
@@ -74,6 +76,55 @@ class CatalogOwnershipTests(TestCase):
         response = self._create_store_via_api(fresh, "Ma première boutique")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(fresh.stores.count(), 1)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="SUNU MALL <noreply@sunu.test>",
+        ADMIN_NOTIFICATION_EMAIL="marketplace-admin@sunu.test",
+        FRONTEND_URL="https://sunu-mall-sn.netlify.app",
+    )
+    def test_store_creation_emails_marketplace_admin(self):
+        fresh = self._make_merchant("new-seller@example.com")
+        fresh.first_name = "Awa"
+        fresh.last_name = "Diop"
+        fresh.save(update_fields=["first_name", "last_name"])
+        self._verify_kyc(fresh)
+        self.client.force_authenticate(fresh)
+
+        response = self.client.post(
+            "/api/catalog/stores/",
+            {
+                "name": "Teranga Mode",
+                "phone": "+221770000000",
+                "city": "Dakar",
+                "address": "Plateau",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(message.to, ["marketplace-admin@sunu.test"])
+        self.assertEqual(message.from_email, "SUNU MALL <noreply@sunu.test>")
+        self.assertIn("Nouvelle boutique à valider : Teranga Mode", message.subject)
+        self.assertIn("Propriétaire : Awa Diop", message.body)
+        self.assertIn("E-mail : new-seller@example.com", message.body)
+        self.assertIn("Téléphone : +221770000000", message.body)
+        self.assertIn("https://sunu-mall-sn.netlify.app/admin-shops", message.body)
+
+    @override_settings(
+        ADMIN_NOTIFICATION_EMAIL="marketplace-admin@sunu.test",
+        FRONTEND_URL="https://sunu-mall-sn.netlify.app",
+    )
+    @patch("apps.catalog.notifications.send_mail", side_effect=RuntimeError("provider unavailable"))
+    def test_email_failure_does_not_cancel_store_creation(self, mocked_send_mail):
+        fresh = self._make_merchant("resilient@example.com")
+        response = self._create_store_via_api(fresh, "Boutique résiliente")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(fresh.stores.count(), 1)
+        mocked_send_mail.assert_called_once()
 
     def test_merchant_cannot_create_a_second_store(self):
         # Règle « 1 vendeur = 1 boutique » (spec §1), appliquée côté backend :
