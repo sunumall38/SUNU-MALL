@@ -142,6 +142,12 @@ Des scripts automatisés sont à votre disposition dans le dossier `infra/script
 
 Le déploiement est géré par `infra/scripts/deploy.sh` (stack `infra/docker-compose.prod.yml`).
 
+Pour un backend hébergé sur Railway et connecté à GitHub, y compris l'envoi
+d'emails transactionnels via Resend, suivez le guide
+[`docs/railway-email.md`](docs/railway-email.md). La configuration
+`backend/railway.json` inclut déjà les migrations, le démarrage Gunicorn et la
+sonde de santé.
+
 ### Prérequis serveur (à faire une fois)
 1. Cloner le repo et se placer sur la branche à déployer.
 2. Renseigner les fichiers d'environnement :
