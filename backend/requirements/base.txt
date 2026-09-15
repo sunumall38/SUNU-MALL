@@ -6,6 +6,7 @@ djangorestframework>=3.15,<3.16
 django-cors-headers>=4.3,<4.4
 django-filter>=24.1,<24.2
 psycopg2-binary>=2.9,<3.0
+dj-database-url>=2.2,<3.0
 
 # Tâches asynchrones
 celery>=5.4,<5.5
@@ -25,11 +26,16 @@ whitenoise>=6.6,<6.8
 
 # JWT Authentication
 djangorestframework-simplejwt>=5.3,<5.4
+drf-spectacular>=0.27,<0.28
 
 # Client HTTP des passerelles de paiement (Wave, Orange Money) et autres
 # appels aux API tierces du projet. requis>=2.31,<3 garde l'API stable de
 # la branche 2.x qui reste compatible avec l'écosystème Django actuel.
 requests>=2.31,<3
+
+# Envoi transactionnel via API HTTPS (Resend), compatible avec toutes les
+# offres Railway où les ports SMTP sortants sont bloqués.
+django-anymail>=13.0,<14.0
 
 # Client API Anthropic (Claude) — juste un client HTTP, pas une lib ML
 # lourde (torch, transformers...), donc reste ici plutôt que dans ia.txt.

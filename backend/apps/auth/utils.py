@@ -27,7 +27,8 @@ email_verification_token = EmailVerificationTokenGenerator()
 
 def send_verification_email(user: User):
     """
-    Envoie un email de vérification à l'utilisateur. Ne lève jamais : un
+    Envoie un email de vérification à l'utilisateur et indique si le
+    fournisseur l'a accepté. Ne lève jamais : un
     échec d'envoi (SMTP injoignable, quota dépassé...) ne doit pas faire
     échouer une inscription déjà créée — le compte reste récupérable via
     l'endpoint `resend-verification`.
@@ -48,7 +49,7 @@ def send_verification_email(user: User):
     })
 
     try:
-        send_mail(
+        sent_count = send_mail(
             subject=subject,
             message=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
@@ -56,5 +57,8 @@ def send_verification_email(user: User):
             html_message=html_message,
             fail_silently=False,
         )
+        logger.info("Email de vérification accepté par le fournisseur pour %s", user.email)
+        return sent_count == 1
     except Exception:
         logger.exception("Échec de l'envoi de l'email de vérification pour %s", user.email)
+        return False

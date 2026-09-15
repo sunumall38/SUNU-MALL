@@ -48,10 +48,13 @@ class HealthView(APIView):
     mode = "aggregate"
 
     def get(self, request):
+        # Une liveness probe ne doit dépendre ni de Postgres, ni de Redis, ni
+        # du stockage : elle indique uniquement que le processus web répond.
+        if self.mode == "live":
+            return Response({"status": "ok"})
+
         checks = run_health_checks()
         summary = health_overall(checks)
-        if self.mode == "live":
-            return Response({"status": "ok", "checks": checks})
         ready_ok = summary != "down"
         data = {"status": summary, "checks": checks, "generated_at": timezone.now()}
         return Response(data, status=status.HTTP_200_OK if ready_ok else status.HTTP_503_SERVICE_UNAVAILABLE)

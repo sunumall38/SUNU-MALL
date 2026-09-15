@@ -4,6 +4,7 @@ dev.py et prod.py importent ce fichier puis surchargent ce qui change.
 """
 from pathlib import Path
 from decouple import config, Csv
+import dj_database_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -24,6 +25,7 @@ INSTALLED_APPS = [
     "django_celery_beat",
     "storages",
     "drf_spectacular",
+    "anymail",
     # Apps métier SUNU MALL — chacune correspond à un domaine clair
     "apps.users",
     "apps.catalog",
@@ -89,6 +91,18 @@ DATABASES = {
         "PORT": config("POSTGRES_PORT", default="5432"),
     }
 }
+
+# Railway fournit une URL de connexion complète lorsque le service PostgreSQL
+# est lié au backend. Elle prend la priorité sur les variables POSTGRES_*
+# utilisées par Docker Compose, qui restent disponibles pour le développement.
+DATABASE_URL = config("DATABASE_URL", default="")
+if DATABASE_URL:
+    DATABASES["default"] = dj_database_url.parse(
+        DATABASE_URL,
+        conn_max_age=config("DATABASE_CONN_MAX_AGE", default=600, cast=int),
+        conn_health_checks=True,
+        ssl_require=config("DATABASE_SSL_REQUIRE", default=False, cast=bool),
+    )
 
 # --- Redis (cache + broker Celery) ---
 REDIS_URL = config("REDIS_URL", default="redis://redis:6379/0")
@@ -312,14 +326,36 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Email Configuration
-EMAIL_BACKEND = config("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+# Email transactionnel. Railway bloque SMTP sur ses offres Free/Trial/Hobby ;
+# Resend passe par HTTPS et fonctionne donc sur toutes les offres. Le mode
+# SMTP reste disponible pour les autres hébergeurs et les comptes Railway Pro.
+EMAIL_PROVIDER = config("EMAIL_PROVIDER", default="").strip().lower()
+RESEND_API_KEY = config("RESEND_API_KEY", default="")
+
+if EMAIL_PROVIDER == "resend":
+    EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+    ANYMAIL = {"RESEND_API_KEY": RESEND_API_KEY}
+elif EMAIL_PROVIDER == "smtp":
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+else:
+    # Compatibilité avec les installations existantes ; en développement le
+    # backend console évite tout envoi réel accidentel.
+    EMAIL_BACKEND = config(
+        "EMAIL_BACKEND",
+        default="django.core.mail.backends.console.EmailBackend",
+    )
+
 EMAIL_HOST = config("EMAIL_HOST", default="localhost")
 EMAIL_PORT = config("EMAIL_PORT", default=1025, cast=int)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@sunumall.com")
+EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=15, cast=int)
+EMAIL_FROM_CONFIGURED = config("DEFAULT_FROM_EMAIL", default="")
+DEFAULT_FROM_EMAIL = EMAIL_FROM_CONFIGURED or "SUNU MALL <noreply@sunumall.com>"
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Boîte de l'équipe marketplace qui reçoit les nouvelles demandes de boutique.
+ADMIN_NOTIFICATION_EMAIL = config("ADMIN_NOTIFICATION_EMAIL", default="").strip()
 
 # --- Paiement (Wave / Orange Money) ---
 # PAYMENT_SANDBOX doit être explicitement mis à False en production ET en

@@ -48,7 +48,11 @@ class OpsTestCase(TestCase):
     # --- contrôles de santé ---
 
     def test_health_endpoints_are_public(self):
-        for url in ["/health/", "/health/live/", "/health/ready/"]:
+        live = self.client.get("/health/live/")
+        self.assertEqual(live.status_code, 200, live.content)
+        self.assertEqual(live.data, {"status": "ok"})
+
+        for url in ["/health/", "/health/ready/"]:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, resp.content)
             self.assertIn("checks", resp.data)

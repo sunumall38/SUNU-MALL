@@ -24,6 +24,28 @@ if not DJANGO_ALLOWED_HOSTS:
     )
 ALLOWED_HOSTS = DJANGO_ALLOWED_HOSTS
 
+# En production, un backend console donnerait l'illusion que les emails sont
+# partis alors qu'ils ne quittent jamais le conteneur. On échoue tôt avec un
+# message exploitable dans les logs Railway.
+if EMAIL_PROVIDER == "resend" and not RESEND_API_KEY:
+    raise ImproperlyConfigured(
+        "RESEND_API_KEY est obligatoire quand EMAIL_PROVIDER=resend."
+    )
+if EMAIL_PROVIDER == "resend" and not EMAIL_FROM_CONFIGURED:
+    raise ImproperlyConfigured(
+        "DEFAULT_FROM_EMAIL doit utiliser une adresse du domaine validé dans Resend."
+    )
+if not ADMIN_NOTIFICATION_EMAIL:
+    raise ImproperlyConfigured(
+        "ADMIN_NOTIFICATION_EMAIL est obligatoire en production pour recevoir "
+        "les nouvelles demandes de boutique."
+    )
+if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
+    raise ImproperlyConfigured(
+        "Un service email réel est obligatoire en production — configurez "
+        "EMAIL_PROVIDER=resend (recommandé sur Railway) ou EMAIL_PROVIDER=smtp."
+    )
+
 # TLS terminé par nginx : Django doit savoir que la requête arrive en https,
 # sinon SECURE_SSL_REDIRECT boucle (il redirige les requêtes qu'il croit en http).
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
