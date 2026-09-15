@@ -1,0 +1,24 @@
+# Outils de développement locaux : ces serveurs ne font pas partie de la
+# stack applicative et ne doivent pas être déployés sur Railway.
+
+# CodeRabbit ne publie pas de serveur MCP officiel. Le serveur MCP officiel
+# de GitHub, limité aux pull requests et à la lecture, permet à Codex de lire
+# les revues et fils de commentaires produits par le bot CodeRabbit.
+[mcp_servers.coderabbit_reviews]
+url = "https://api.githubcopilot.com/mcp/x/pull_requests/readonly"
+bearer_token_env_var = "GITHUB_PAT_TOKEN"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+
+# Serveur MCP hébergé et maintenu par Sentry. L'authentification OAuth est
+# propre à chaque développeur et aucun jeton n'est enregistré dans Git.
+[mcp_servers.sentry]
+url = "https://mcp.sentry.dev/mcp"
+auth = "oauth"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"
