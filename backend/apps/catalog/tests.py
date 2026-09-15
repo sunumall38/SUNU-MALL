@@ -16,7 +16,7 @@ from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 from apps.users.models import User, Role, UserRole
-from apps.catalog.models import Product, ProductVariant, Store
+from apps.catalog.models import Product, ProductImage, ProductVariant, Store
 from apps.kyc.models import SellerKYC
 
 # 1x1 PNG transparent minimal, valide pour Pillow.
@@ -48,9 +48,22 @@ class CatalogOwnershipTests(TestCase):
 
         self.owner = self._make_merchant("owner@example.com")
         self.other = self._make_merchant("other@example.com")
-
         self.store = Store.objects.create(owner=self.owner, name="Ma boutique")
         self.product = Product.objects.create(store=self.store, name="Produit", base_price=1000)
+
+    def test_deleting_owner_removes_catalog_files(self):
+        store = Store.objects.create(owner=self.owner, name="Fichiers QA")
+        store.logo.save("logo.png", SimpleUploadedFile("logo.png", TINY_PNG, content_type="image/png"))
+        store.banner.save("banner.png", SimpleUploadedFile("banner.png", TINY_PNG, content_type="image/png"))
+        product = Product.objects.create(store=store, name="Produit QA", base_price=1000)
+        image = ProductImage.objects.create(product=product)
+        image.image.save("produit.png", SimpleUploadedFile("produit.png", TINY_PNG, content_type="image/png"))
+        stored_files = [(field.storage, field.name) for field in (store.logo, store.banner, image.image)]
+
+        self.owner.delete()
+
+        for storage, name in stored_files:
+            self.assertFalse(storage.exists(name))
 
     def _make_merchant(self, email):
         user = User.objects.create_user(username=email, email=email, password="testpass123", is_verified=True)

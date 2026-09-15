@@ -65,6 +65,30 @@ class HasPermission(permissions.BasePermission):
         )
 
 
+class HasKycActionPermission(permissions.BasePermission):
+    """Applique la permission KYC fine correspondant à l'action DRF."""
+
+    ACTION_PERMISSIONS = {
+        "list": "kyc.view",
+        "retrieve": "kyc.view",
+        "start_review": "kyc.review",
+        "approve": "kyc.approve",
+        "reject": "kyc.reject",
+        "request_resubmission": "kyc.reject",
+        "suspend": "kyc.suspend",
+        "block": "kyc.block",
+    }
+
+    def has_permission(self, request, view):
+        required = self.ACTION_PERMISSIONS.get(getattr(view, "action", None))
+        return bool(
+            required
+            and request.user
+            and request.user.is_authenticated
+            and request.user.has_permission(required)
+        )
+
+
 class IsOwnerOrAdmin(permissions.BasePermission):
     """
     Permission qui vérifie si l'utilisateur est le propriétaire de l'objet ou admin.
