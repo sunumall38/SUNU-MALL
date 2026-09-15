@@ -35,6 +35,11 @@ if EMAIL_PROVIDER == "resend" and not EMAIL_FROM_CONFIGURED:
     raise ImproperlyConfigured(
         "DEFAULT_FROM_EMAIL doit utiliser une adresse du domaine validé dans Resend."
     )
+if not ADMIN_NOTIFICATION_EMAIL:
+    raise ImproperlyConfigured(
+        "ADMIN_NOTIFICATION_EMAIL est obligatoire en production pour recevoir "
+        "les nouvelles demandes de boutique."
+    )
 if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
     raise ImproperlyConfigured(
         "Un service email réel est obligatoire en production — configurez "

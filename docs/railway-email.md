@@ -61,6 +61,7 @@ REDIS_URL=${{Redis.REDIS_URL}}
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=<clé-secrète-resend>
 DEFAULT_FROM_EMAIL=SUNU MALL <noreply@votre-domaine.sn>
+ADMIN_NOTIFICATION_EMAIL=admin@votre-domaine.sn
 
 FRONTEND_URL=https://sunu-mall-sn.netlify.app
 BACKEND_URL=https://<backend>.up.railway.app/api
@@ -102,8 +103,9 @@ Pour diagnostiquer le déploiement :
 - `/health/live/` vérifie uniquement que le processus Django répond ;
 - `/health/ready/` vérifie les dépendances et renvoie une erreur si PostgreSQL
   est indisponible ;
-- les échecs d'envoi sont journalisés avec le destinataire, sans exposer la clé
-  API.
+- les échecs d'envoi sont journalisés sans exposer la clé API ;
+- après chaque création de boutique, `ADMIN_NOTIFICATION_EMAIL` reçoit les
+  informations du vendeur et un lien vers `/admin-shops`.
 
 ## Alternative SMTP
 
