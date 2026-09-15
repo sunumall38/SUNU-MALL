@@ -75,6 +75,39 @@ class KYCSubmitTests(TestCase):
         }
         return self.client.post(path, payload, format="multipart")
 
+    def test_specialized_admin_permissions_are_enforced(self):
+        marketplace_admin = make_user("marketplace-admin@sunu.test", Role.RoleName.ADMIN_MARKETPLACE)
+        kyc_admin = make_user("kyc-admin@sunu.test", Role.RoleName.ADMIN_KYC)
+        dossier = SellerKYC.objects.create(
+            seller=self.merchant,
+            document_type="cni",
+            document_front="kyc/sellers/test/front.jpg",
+            document_back="kyc/sellers/test/back.jpg",
+            status=SellerKYC.Status.SUBMITTED,
+        )
+
+        self.client.force_authenticate(marketplace_admin)
+        self.assertEqual(self.client.get("/api/kyc/seller-kyc/").status_code, 403)
+        self.assertEqual(self.client.post(f"/api/kyc/seller-kyc/{dossier.id}/approve/").status_code, 403)
+
+        self.client.force_authenticate(kyc_admin)
+        self.assertEqual(self.client.get("/api/kyc/seller-kyc/").status_code, 200)
+        self.assertEqual(self.client.post(f"/api/kyc/seller-kyc/{dossier.id}/approve/").status_code, 200)
+
+    def test_deleting_owner_removes_private_kyc_files(self):
+        self._submit("/api/kyc/seller-kyc/submit/", self.merchant)
+        dossier = SellerKYC.objects.get(seller=self.merchant)
+        front = dossier.document_front
+        back = dossier.document_back
+        from apps.kyc.storage import get_kyc_storage
+
+        storage = get_kyc_storage()
+        self.assertTrue(storage.exists(front))
+        self.assertTrue(storage.exists(back))
+        self.merchant.delete()
+        self.assertFalse(storage.exists(front))
+        self.assertFalse(storage.exists(back))
+
     # --- 1 & 2 : dépôt et séparation des chemins MinIO ---
 
     def test_seller_submit_201_and_private_path(self):

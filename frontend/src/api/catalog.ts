@@ -83,8 +83,33 @@ export function updateStoreSettings(storeId: string, payload: { business_hours?:
 }
 
 export async function listCategories() {
-  const data = await apiGet<Paginated<Category>>("/catalog/categories/");
-  return data.results;
+  const all: Category[] = [];
+  let page = 1;
+  for (;;) {
+    const data = await apiGet<Paginated<Category>>(`/catalog/categories/?page=${page}`);
+    all.push(...data.results);
+    if (!data.next) break;
+    page += 1;
+  }
+  return all;
+}
+
+export function createCategory(payload: { name: string; parent: string | null }) {
+  return apiPost<Category>("/catalog/categories/", payload);
+}
+
+export function updateCategory(id: string, payload: { name: string; parent: string | null }) {
+  return apiPatch<Category>(`/catalog/categories/${id}/`, payload);
+}
+
+export function deleteCategory(id: string) {
+  return apiDelete<void>(`/catalog/categories/${id}/`);
+}
+
+export function uploadCategoryImage(id: string, file: File) {
+  const formData = new FormData();
+  formData.append("image", file);
+  return apiPost<Category>(`/catalog/categories/${id}/image/`, formData);
 }
 
 export async function listProducts(params?: { search?: string; store?: string; category?: string }) {

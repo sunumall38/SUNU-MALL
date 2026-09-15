@@ -7,4 +7,5 @@ class KycConfig(AppConfig):
     verbose_name = "KYC (vérification d'identité)"
 
     def ready(self):
-        import apps.kyc.models
+        import apps.kyc.models  # noqa: F401
+        import apps.kyc.signals  # noqa: F401

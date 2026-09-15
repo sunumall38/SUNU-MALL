@@ -28,7 +28,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.users.models import Role
-from apps.users.permissions import IsAdmin
+from apps.users.permissions import HasKycActionPermission
 from .models import DriverKYC, SellerKYC, VerificationHistory
 from .serializers import (
     DriverKYCSerializer, DriverKYCSubmitSerializer,
@@ -88,7 +88,7 @@ class _KYCViewSetBase(mixins.ListModelMixin, viewsets.GenericViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve", "approve", "reject",
                            "request_resubmission", "start_review", "suspend", "block"]:
-            return [permissions.IsAuthenticated(), IsAdmin()]
+            return [permissions.IsAuthenticated(), HasKycActionPermission()]
         return [permissions.IsAuthenticated()]
 
     def _enforce_role(self):
