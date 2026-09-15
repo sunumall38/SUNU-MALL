@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, Heart, LayoutDashboard, LogOut, Package, Search, ShieldCheck, ShoppingCart, User } from "lucide-react";
+import { Bell, ChevronDown, Heart, LayoutDashboard, LogOut, Menu, Package, Search, ShieldCheck, ShoppingCart, User, X } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { CategoryMenu } from "@/components/marketplace/CategoryMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
@@ -43,6 +43,7 @@ export function MarketHeader() {
   const fetchWishlist = useWishlistStore((s) => s.fetchWishlist);
   const [query, setQuery] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isMerchant = !!user?.roles.includes("merchant");
   const hideConnectedAccount = isMerchant && merchantKyc.checked && merchantKyc.status !== "VERIFIED";
@@ -62,20 +63,69 @@ export function MarketHeader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [user?.id]);
+
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
+    setMobileMenuOpen(false);
     navigate(query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : "/search");
   }
 
   function handleLogout() {
     logout();
     setAccountOpen(false);
+    setMobileMenuOpen(false);
     navigate("/home");
   }
 
   return (
     <header className="sticky top-0 z-50 border-b border-gray-100 bg-white shadow-sm">
-      <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
+      {/* Mobile header (<sm) : logo + panier + menu, puis recherche pleine largeur */}
+      <div className="flex flex-col gap-3 px-4 py-3 sm:hidden">
+        <div className="flex items-center gap-3">
+          <Logo to="/home" size={40} className="shrink-0" />
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <Link to="/cart" className="relative flex items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-50" aria-label="Panier">
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-orange text-[10px] font-bold text-white">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="flex items-center justify-center rounded-lg p-2 text-gray-600 hover:bg-gray-50"
+              aria-label="Ouvrir le menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSearch} className="flex w-full items-center">
+          <div className="flex w-full min-w-0 rounded-lg border border-gray-200 shadow-sm transition-all focus-within:border-orange focus-within:ring-2 focus-within:ring-orange/20">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Rechercher un produit, boutique…"
+              className="w-full min-w-0 flex-1 rounded-l-lg bg-white px-4 py-2.5 text-sm text-gray-700 outline-none placeholder:text-gray-400"
+            />
+            <button
+              type="submit"
+              className="flex shrink-0 items-center justify-center rounded-r-lg bg-orange px-4 py-2.5 text-white transition-colors hover:bg-orange-dark"
+              aria-label="Rechercher"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Desktop header (sm+) */}
+      <div className="mx-auto hidden max-w-7xl items-center gap-4 px-4 py-3 sm:flex">
         <Logo to="/home" size={48} className="shrink-0" />
 
         <form onSubmit={handleSearch} className="ml-2 flex max-w-4xl flex-1 items-center sm:ml-6">
@@ -205,6 +255,109 @@ export function MarketHeader() {
           ))}
         </div>
       </nav>
+
+      {/* Mobile slide-in menu : catégories, compte, favoris, commandes, notifications */}
+      {mobileMenuOpen && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40 sm:hidden" onClick={() => setMobileMenuOpen(false)} />
+          <div className="fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-white p-5 shadow-lg sm:hidden">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="font-display text-base font-bold text-navy">Menu</span>
+              <button
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded p-1 text-gray-400 hover:bg-gray-50 hover:text-gray-700"
+                aria-label="Fermer le menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {hideConnectedAccount ? (
+              <Link
+                to="/merchant"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
+              >
+                <ShieldCheck className="h-4 w-4" /> Compte en attente de validation
+              </Link>
+            ) : user ? (
+              <div className="mb-4 rounded-lg border border-gray-100 p-3">
+                <p className="truncate text-sm font-semibold text-navy">
+                  {user.first_name} {user.last_name}
+                </p>
+                <p className="truncate text-xs text-gray-400">{user.email}</p>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mb-4 flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700"
+              >
+                <User className="h-4 w-4" /> Se connecter
+              </Link>
+            )}
+
+            <nav className="flex flex-col gap-1 border-b border-gray-100 pb-3">
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.label}
+                  to={link.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+
+            <nav className="flex flex-col gap-1 pt-3">
+              {user?.roles.includes("client") && (
+                <Link
+                  to="/orders"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <Package className="h-4 w-4" /> Mes commandes
+                </Link>
+              )}
+              <Link
+                to="/wishlist"
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Heart className="h-4 w-4" /> Mes favoris {favCount > 0 && `(${favCount})`}
+              </Link>
+              {user && (
+                <Link
+                  to="/notifications"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <Bell className="h-4 w-4" /> Notifications
+                </Link>
+              )}
+              {!hideConnectedAccount && user && (
+                <Link
+                  to={user.roles.includes("client") ? "/orders" : roleHomePath(user.roles)}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <LayoutDashboard className="h-4 w-4" /> {ROLE_LABEL[user.roles[0]] ?? "Mon espace"}
+                </Link>
+              )}
+            </nav>
+
+            {user && (
+              <button
+                onClick={handleLogout}
+                className="mt-4 flex items-center gap-2 rounded-lg border-t border-gray-100 px-3 py-2.5 text-sm font-medium text-danger hover:bg-danger/5"
+              >
+                <LogOut className="h-4 w-4" /> Se déconnecter
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </header>
   );
 }
