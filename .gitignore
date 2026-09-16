@@ -50,3 +50,6 @@ backend/pyrefly.toml
 
 # ===== Rapports générés (admin finance) =====
 backend/reports/
+
+# Local Netlify folder
+.netlify

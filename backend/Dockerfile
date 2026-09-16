@@ -46,10 +46,11 @@ COPY . .
 # Statique (admin Django + thème) collectée dès l'image : nginx/WhiteNoise
 # la servent sans étape runtime. configure settings/dev = DEBUG=True mais
 # collectstatic ne touche ni à la base ni aux secrets.
-RUN python manage.py collectstatic --noinput
+RUN DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py collectstatic --noinput
 
-EXPOSE 8001
+EXPOSE 8000
 
-# En dev, ce CMD est écrasé par docker-compose (reload activé).
-# En prod, on utilisera gunicorn (voir infra/).
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8001"]
+# Le même artefact sert l'API, le worker Celery et Celery Beat sur Railway.
+# PROCESS_TYPE sélectionne le processus sans dupliquer l'image.
+RUN chmod +x /app/railway-entrypoint.sh
+CMD ["/app/railway-entrypoint.sh"]

@@ -94,12 +94,14 @@ class RegisterView(generics.CreateAPIView):
     Inscription d'un nouvel utilisateur (Acheteur, Vendeur, etc.).
     Le rôle par défaut est 'client'.
     Envoie un email de vérification.
+
+    Un compte vendeur n'a plus besoin de pièce d'identité à ce stade : il la
+    dépose à sa première connexion (MerchantKycGate + KycStatusCard côté
+    frontend, POST /api/kyc/seller-kyc/submit/ côté API).
     """
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
     throttle_classes = [AuthAnonRateThrottle]
-    # L'inscription vendeur embarque les pièces d'identité : on accepte le
-    # multipart en prévision, sinon DRF rejette les fichiers (400).
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def create(self, request, *args, **kwargs):
@@ -130,8 +132,9 @@ class RegisterView(generics.CreateAPIView):
             "message": (
                 "Inscription réussie ! Vérifiez votre email pour activer votre compte."
                 if not is_merchant
-                else "Inscription réussie ! Vérifiez votre email, puis notre équipe "
-                     "examinera vos pièces d'identité avant l'ouverture de votre boutique."
+                else "Inscription réussie ! Vérifiez votre email, puis connectez-vous : "
+                     "vous pourrez alors envoyer votre pièce d'identité pour activer "
+                     "votre boutique."
             ),
         }, status=status.HTTP_201_CREATED)
 

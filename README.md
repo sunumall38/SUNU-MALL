@@ -23,6 +23,7 @@ Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques 
 
 ```
 sunu-mall/
+├── .railway/           # Infrastructure Railway du backend (sans frontend)
 ├── backend/            # API REST - Django + Django REST Framework + Celery
 ├── frontend/           # Boutique publique + espaces vendeur/admin/livreur - React + Vite (SPA responsive)
 ├── infra/              # Configuration Docker Compose, Nginx, Variables d'env & Monitoring
@@ -116,6 +117,13 @@ La plateforme intègre une stack de surveillance prête pour la production pour 
 * **Grafana :** [http://localhost:3031](http://localhost:3031) — Permet de visualiser les métriques collectées via des tableaux de bord. (Identifiants : `admin` / mot de passe configuré dans Grafana).
 * **Loki & Promtail (Centralisation des logs) :** Centralise les journaux de l'ensemble des conteneurs pour permettre une recherche rapide de pannes directement dans Grafana.
 
+### Outils de développement MCP
+
+Les connexions Codex pour consulter les revues CodeRabbit et les incidents
+Sentry sont décrites dans [`docs/outils-mcp.md`](docs/outils-mcp.md). Elles sont
+locales aux développeurs et ne font pas partie des services à déployer sur
+Railway.
+
 ---
 
 ## 🗄️ Gestion de la Base de Données et Sauvegardes
@@ -139,6 +147,16 @@ Des scripts automatisés sont à votre disposition dans le dossier `infra/script
 ---
 
 ## 🚀 Déploiement en production
+
+### Railway (backend uniquement)
+
+La topologie Railway (API, workers, PostgreSQL, Redis et stockage S3 privé)
+est déclarée dans [`.railway/railway.ts`](.railway/railway.ts). Le frontend
+n'est pas déployé sur Railway. Voir le
+[guide de déploiement Railway](docs/deploiement-railway.md) pour les secrets,
+le domaine et les contrôles de santé.
+
+### Serveur Docker Compose
 
 Le déploiement est géré par `infra/scripts/deploy.sh` (stack `infra/docker-compose.prod.yml`).
 

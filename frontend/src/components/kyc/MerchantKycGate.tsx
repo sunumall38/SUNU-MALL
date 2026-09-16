@@ -61,8 +61,8 @@ export function MerchantKycGate({ nav, title }: { nav: DashboardNavItem[]; title
           <div className="mb-6 text-center">
             <h1 className="font-display text-2xl font-extrabold text-ink">Espace vendeur</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Votre espace sera utilisable une fois votre identité vérifiée par Sunu Mall (délai : ≤ 24 h). Vous
-              pouvez renvoyer vos documents à tout moment.
+              Envoyez votre pièce d'identité ci-dessous pour activer votre boutique. Votre espace sera
+              utilisable dès que Sunu Mall aura vérifié votre identité (délai : ≤ 24 h).
             </p>
           </div>
           <KycStatusCard kind="seller" />
