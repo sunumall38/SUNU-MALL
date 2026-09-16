@@ -58,7 +58,7 @@ jobs:
         run: python manage.py migrate --noinput
 
       - name: Run tests
-        run: python manage.py test
+        run: python manage.py test apps
 
   frontend:
     runs-on: ubuntu-latest
