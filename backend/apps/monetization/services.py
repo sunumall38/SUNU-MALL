@@ -177,7 +177,7 @@ def seed_default_plans():
             },
         },
         {
-            "code": "BUSINESS", "name": "BUSINESS", "price": 10000,
+            "code": "BUSINESS", "name": "BUSINESS", "price": 7500,
             "billing_cycle": "monthly", "duration_days": 30,
             "max_products": None, "commission_rate": "0.00",
             "features": {
