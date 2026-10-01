@@ -145,10 +145,21 @@ class Command(BaseCommand):
         today = timezone.now().date()
 
         # --- Catégories de produits -------------------------------------------------
+        # Les noms de StoreCategory (type de boutique) et de Category (taxonomie
+        # produit) sont deux référentiels distincts, gérés séparément — certains
+        # ne coïncident pas exactement (ex: StoreCategory "Beauté & Bien-être" vs
+        # Category "Beauté & Santé"). Sans cet alias, get_or_create(name=...)
+        # créait une catégorie produit dupliquée à chaque nom non strictement
+        # identique, au lieu de réutiliser l'arborescence existante.
+        CATEGORY_NAME_ALIASES = {
+            "Beauté & Bien-être": "Beauté & Santé",
+            "Maison & Électroménager": "Maison & Jardin",
+        }
         category_by_name = {}
         store_categories = {sc.name: sc for sc in StoreCategory.objects.all()}
         for name in store_categories:
-            cat, _ = Category.objects.get_or_create(name=name)
+            real_name = CATEGORY_NAME_ALIASES.get(name, name)
+            cat, _ = Category.objects.get_or_create(name=real_name)
             category_by_name[name] = cat
 
         # --- Vendeurs + clients de démo ---------------------------------------------
