@@ -307,10 +307,18 @@ class SetPasswordView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
+        # Réservé aux comptes invités. Un compte qui a déjà un mot de passe
+        # passe par « change-password », qui exige le mot de passe actuel :
+        # sinon un jeton d'accès volé suffirait à s'approprier le compte.
+        if request.user.has_usable_password():
+            raise PermissionDenied(
+                "Ce compte a déjà un mot de passe. Utilisez le changement de mot de passe."
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request.user.set_password(serializer.validated_data['password'])
         request.user.save()
+        log_security_event(request.user, "PASSWORD_CHANGE", request, metadata={"via": "set_password"})
         send_verification_email(request.user)
         return Response({
             "message": "Mot de passe défini. Vérifiez votre email pour activer toutes les fonctionnalités.",

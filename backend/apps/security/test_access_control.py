@@ -277,3 +277,70 @@ class StoreModerationBypassTests(AccessControlTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         store.refresh_from_db()
         self.assertEqual(store.status, Store.Status.SUSPENDED)
+
+
+class GuestCheckoutTakeoverTests(AccessControlTestCase):
+    """C3 — l'achat invité n'ouvre ni ne modifie jamais un compte existant."""
+
+    PAYLOAD = {"first_name": "Pirate", "last_name": "X", "phone": "+221 70 000 00 00"}
+
+    def make_guest(self, email="guest@example.com"):
+        guest = User.objects.create_user(
+            username=email, email=email, first_name="Awa", phone="+221 77 111 11 11",
+        )
+        guest.set_unusable_password()
+        guest.save()
+        return guest
+
+    def test_existing_guest_account_gets_no_tokens_and_is_untouched(self):
+        guest = self.make_guest()
+        response = APIClient().post(
+            "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": guest.email}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("access", response.data)
+        guest.refresh_from_db()
+        self.assertEqual(guest.first_name, "Awa")
+        self.assertEqual(guest.phone, "+221 77 111 11 11")
+
+    def test_email_case_variant_does_not_bypass_the_check(self):
+        self.make_guest("guest@example.com")
+        response = APIClient().post(
+            "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": "Guest@Example.com"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(User.objects.filter(email__iexact="guest@example.com").count(), 1)
+
+    def test_account_with_password_is_still_refused(self):
+        response = APIClient().post(
+            "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": self.customer.email}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_new_email_still_creates_a_guest_session(self):
+        response = APIClient().post(
+            "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": "nouveau@example.com"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        user = User.objects.get(email="nouveau@example.com")
+        self.assertFalse(user.has_usable_password())
+        self.assertTrue(user.has_role(Role.RoleName.CLIENT))
+
+    def test_set_password_refused_when_account_already_has_one(self):
+        response = self.as_user(self.customer).post(
+            "/api/auth/set-password/", {"password": "Nouveau-Secret-2026"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.check_password("testpass123"))
+
+    def test_guest_can_set_a_strong_password_but_not_a_common_one(self):
+        guest = self.make_guest()
+        client = self.as_user(guest)
+        weak = client.post("/api/auth/set-password/", {"password": "12345678"})
+        self.assertEqual(weak.status_code, status.HTTP_400_BAD_REQUEST)
+        strong = client.post("/api/auth/set-password/", {"password": "Tabaski-Dakar-2026"})
+        self.assertEqual(strong.status_code, status.HTTP_200_OK)
+        guest.refresh_from_db()
+        self.assertTrue(guest.check_password("Tabaski-Dakar-2026"))

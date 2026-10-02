@@ -72,7 +72,8 @@ export function GuestCheckoutModal() {
               <Link to="/login" onClick={handleClose} className="font-semibold underline">
                 Connectez-vous
               </Link>{" "}
-              pour continuer.
+              pour continuer. Si vous aviez commandé sans créer de compte, utilisez une autre adresse
+              email.
             </span>
           </div>
         )}

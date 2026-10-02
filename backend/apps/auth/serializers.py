@@ -1,6 +1,7 @@
 from django.db import transaction
 from rest_framework import serializers
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from apps.users.models import User, Role, UserRole
 
 ALLOWED_REGISTRATION_ROLES = {'client', 'merchant', 'driver'}
@@ -71,8 +72,13 @@ class ResendVerificationSerializer(serializers.Serializer):
 
 class GuestCheckoutSerializer(serializers.Serializer):
     """
-    Crée (ou réutilise) silencieusement un compte client sans mot de passe,
-    pour permettre un achat sans étape d'inscription visible avant paiement.
+    Crée silencieusement un compte client sans mot de passe, pour permettre un
+    achat sans étape d'inscription visible avant paiement.
+
+    Un email déjà connu est toujours refusé, que le compte ait un mot de passe
+    ou non : cette route est publique et renvoie des jetons de session, elle ne
+    doit donc jamais ouvrir ni modifier un compte existant sur simple
+    présentation de son adresse email (prise de contrôle du compte).
     """
     email = serializers.EmailField()
     first_name = serializers.CharField(max_length=150)
@@ -80,8 +86,7 @@ class GuestCheckoutSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=30)
 
     def validate_email(self, value):
-        existing = User.objects.filter(email=value).first()
-        if existing and existing.has_usable_password():
+        if User.objects.filter(email__iexact=value).exists():
             raise serializers.ValidationError(
                 "Cet email est déjà associé à un compte. Merci de vous connecter."
             )
@@ -89,13 +94,7 @@ class GuestCheckoutSerializer(serializers.Serializer):
 
     def save(self):
         data = self.validated_data
-        user = User.objects.filter(email=data['email']).first()
-        if user:
-            user.first_name = data['first_name']
-            user.last_name = data.get('last_name', '')
-            user.phone = data['phone']
-            user.save()
-        else:
+        with transaction.atomic():
             user = User.objects.create_user(
                 username=data['email'],
                 email=data['email'],
@@ -113,6 +112,12 @@ class GuestCheckoutSerializer(serializers.Serializer):
 class SetPasswordSerializer(serializers.Serializer):
     """Transforme un compte invité (sans mot de passe) en compte complet."""
     password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_password(self, value):
+        # Applique AUTH_PASSWORD_VALIDATORS (mots de passe trop courants,
+        # entièrement numériques, trop proches de l'email…).
+        validate_password(value, self.context["request"].user)
+        return value
 
 
 class ChangePasswordSerializer(serializers.Serializer):
