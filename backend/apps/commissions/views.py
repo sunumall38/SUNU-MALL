@@ -176,6 +176,10 @@ class PayoutViewSet(viewsets.ModelViewSet):
     """Demandes de retrait (vendeur : créer ; admin : approuver / rejeter)."""
     serializer_class = PayoutSerializer
     permission_classes = [permissions.IsAuthenticated]
+    # Un retrait se crée (POST) puis se traite par `approve` / `reject`. Sans
+    # cette restriction, le vendeur pouvait modifier `amount` après le débit
+    # de son portefeuille, ou supprimer un retrait sans être recrédité.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
         user = self.request.user

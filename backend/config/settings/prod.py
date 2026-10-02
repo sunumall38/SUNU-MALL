@@ -2,6 +2,7 @@
 from django.core.exceptions import ImproperlyConfigured
 from decouple import config, Csv
 from .base import *  # noqa: F401,F403
+from .checks import validate_production_settings
 
 DEBUG = False
 
@@ -55,3 +56,15 @@ CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
+
+# Garde-fous : refuse de démarrer sur une configuration dangereuse (mode
+# sandbox avec de vraies clés de paiement, secrets par défaut…). Voir
+# config/settings/checks.py.
+validate_production_settings(globals())
+if PAYMENT_SANDBOX:
+    import logging
+
+    logging.getLogger(__name__).warning(
+        "PAYMENT_SANDBOX est actif en production : les paiements sont simulés et "
+        "peuvent être validés sans paiement réel. À désactiver avant l'ouverture."
+    )

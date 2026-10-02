@@ -21,9 +21,12 @@ from .serializers import (
     RegisterSerializer, LoginSerializer, ResendVerificationSerializer,
     GuestCheckoutSerializer, SetPasswordSerializer, ChangePasswordSerializer,
 )
-from .utils import email_verification_token, send_verification_email
+from .utils import (
+    email_verification_token, hash_guest_login_token, send_guest_login_link,
+    send_verification_email,
+)
 from apps.security.utils import log_security_event
-from apps.users.models import PhoneOTP, User
+from apps.users.models import PhoneOTP, Token, User
 
 logger = logging.getLogger(__name__)
 
@@ -275,30 +278,96 @@ class GuestCheckoutView(generics.GenericAPIView):
     throttle_classes = [AuthAnonRateThrottle]
 
     def post(self, request, *args, **kwargs):
+        # Client invité qui revient (compte existant sans mot de passe) : on
+        # n'ouvre jamais sa session sur simple présentation de son email. Il
+        # reçoit un lien de connexion à usage unique, preuve qu'il contrôle
+        # l'adresse (voir GuestLoginView). La réponse est la même que le lien
+        # vienne d'être envoyé ou qu'un envoi récent soit encore valable.
+        email = str((request.data or {}).get("email", "")).strip()
+        existing = User.objects.filter(email__iexact=email).first() if email else None
+        if existing and existing.is_active and not existing.has_usable_password():
+            send_guest_login_link(existing)
+            return Response(
+                {
+                    "login_link_sent": True,
+                    "message": "Vous avez déjà commandé avec cette adresse. Nous venons de vous "
+                               "envoyer un lien par email pour continuer votre commande.",
+                },
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        refresh = RefreshToken.for_user(user)
-        roles = [ur.role.name for ur in user.user_roles.select_related('role')]
-
         # Journal de sécurité §16 : achat sans compte (création de compte).
-        log_security_event(user, "LOGIN", request, metadata={"via": "guest_checkout", "roles": roles})
+        return Response(_guest_session_payload(user, request, via="guest_checkout"))
 
-        return Response({
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "phone": user.phone,
-                "roles": roles,
-                "is_verified": user.is_verified,
-                "has_password": user.has_usable_password(),
-            },
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-        })
+
+def _guest_session_payload(user, request, via):
+    """Ouvre une session (JWT) pour un client invité et la journalise."""
+    refresh = RefreshToken.for_user(user)
+    roles = [ur.role.name for ur in user.user_roles.select_related('role')]
+    log_security_event(user, "LOGIN", request, metadata={"via": via, "roles": roles})
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "phone": user.phone,
+            "roles": roles,
+            "is_verified": user.is_verified,
+            "has_password": user.has_usable_password(),
+        },
+        "access": str(refresh.access_token),
+        "refresh": str(refresh),
+    }
+
+
+class GuestLoginView(APIView):
+    """
+    POST /api/auth/guest-login/  {"token": "..."}
+
+    Échange le lien reçu par email contre une session, pour un client invité
+    (compte sans mot de passe). Le jeton est à usage unique et de courte durée ;
+    seule son empreinte est stockée. Un compte qui a défini un mot de passe
+    entre-temps passe par la connexion classique.
+    """
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AuthAnonRateThrottle]
+
+    INVALID = "Ce lien est invalide ou a expiré. Recommencez votre commande pour en recevoir un nouveau."
+
+    def post(self, request):
+        raw_token = str((request.data or {}).get("token", "")).strip()
+        if not raw_token:
+            raise ValidationError({"token": self.INVALID})
+
+        token = (
+            Token.objects.select_related("user")
+            .filter(type=Token.TokenType.GUEST_LOGIN, token=hash_guest_login_token(raw_token))
+            .first()
+        )
+        if token is None or not token.is_valid():
+            raise ValidationError({"token": self.INVALID})
+
+        user = token.user
+        if not user.is_active or user.has_usable_password():
+            raise ValidationError({"token": self.INVALID})
+
+        # Usage unique, garanti même si le lien est ouvert deux fois en même
+        # temps : une seule requête réussit à le marquer utilisé.
+        consumed = Token.objects.filter(pk=token.pk, used_at__isnull=True).update(used_at=timezone.now())
+        if not consumed:
+            raise ValidationError({"token": self.INVALID})
+
+        # Ouvrir le lien prouve le contrôle de l'adresse email.
+        if not user.is_verified:
+            user.is_verified = True
+            user.save(update_fields=["is_verified", "updated_at"])
+
+        return Response(_guest_session_payload(user, request, via="guest_login_link"))
 
 
 class SetPasswordView(generics.GenericAPIView):
@@ -307,10 +376,18 @@ class SetPasswordView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
+        # Réservé aux comptes invités. Un compte qui a déjà un mot de passe
+        # passe par « change-password », qui exige le mot de passe actuel :
+        # sinon un jeton d'accès volé suffirait à s'approprier le compte.
+        if request.user.has_usable_password():
+            raise PermissionDenied(
+                "Ce compte a déjà un mot de passe. Utilisez le changement de mot de passe."
+            )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         request.user.set_password(serializer.validated_data['password'])
         request.user.save()
+        log_security_event(request.user, "PASSWORD_CHANGE", request, metadata={"via": "set_password"})
         send_verification_email(request.user)
         return Response({
             "message": "Mot de passe défini. Vérifiez votre email pour activer toutes les fonctionnalités.",
@@ -346,21 +423,32 @@ class ChangePasswordView(generics.GenericAPIView):
 
 
 def _send_phone_otp_notification(user, phone, plaintext_code):
-    """Envoi du code par SMS via le canal Notification (aucun fournisseur
-    branché à ce jour → la notification reste tracée, jamais réellement
-    envoyée). En dev/test avec PHONE_OTP_REVEAL_CODE, le code est aussi
-    loggé en console pour faciliter le développement."""
+    """Envoi du code par SMS via le canal Notification.
+
+    Le code n'est JAMAIS enregistré : la notification gardée en base (et donc
+    lisible par l'utilisateur via l'API des notifications) ne contient qu'un
+    message neutre ; le code n'est transmis qu'au fournisseur SMS. Sinon
+    l'utilisateur lirait son propre code et « vérifierait » un numéro qu'il ne
+    possède pas.
+
+    Aucun fournisseur SMS n'est branché à ce jour : tant que c'est le cas, le
+    code n'arrive nulle part en production. En dev/test avec
+    PHONE_OTP_REVEAL_CODE, il est loggé en console et renvoyé dans la réponse.
+    """
     from apps.monetization.models import Notification
 
     notification = Notification.objects.create(
         user=user,
         channel=Notification.Channel.SMS,
         subject="Code de vérification SUNU MALL",
-        message=f"Votre code de vérification est : {plaintext_code}. "
+        message="Un code de vérification vient d'être envoyé par SMS à votre numéro. "
                 "Ne le partagez avec personne.",
         metadata={"kind": "phone_otp", "phone": phone},
     )
-    notification.send()
+    notification.send(
+        body=f"SUNU MALL : votre code de vérification est {plaintext_code}. "
+             "Ne le partagez avec personne."
+    )
     if settings.PHONE_OTP_REVEAL_CODE:
         logger.info("OTP téléphone pour %s (%s) : %s", user.email, phone, plaintext_code)
     return notification
@@ -375,6 +463,9 @@ class RequestPhoneOTPView(APIView):
     un nouveau code invalide le précédent (un seul code actif à la fois).
     """
     permission_classes = [permissions.IsAuthenticated]
+    # Limite par compte : chaque demande émet un nouveau code (donc de nouveaux
+    # essais) et, une fois le fournisseur branché, un SMS facturé.
+    throttle_scope = "phone_otp_request"
 
     def post(self, request):
         user = request.user
@@ -418,6 +509,7 @@ class VerifyPhoneOTPView(APIView):
     expiré. Une fois vérifié, `phone_verified` reste acquis sur le compte.
     """
     permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "phone_otp_verify"
 
     def post(self, request):
         user = request.user

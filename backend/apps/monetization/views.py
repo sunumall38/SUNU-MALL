@@ -218,12 +218,26 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
             return Subscription.objects.all()
         return Subscription.objects.filter(subscriber_id=user.id)
 
+    # Un abonnement ne se supprime jamais (historique de facturation).
+    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+
+    def _require_subscription_manager(self):
+        # Écriture directe réservée à l'administration habilitée (permission
+        # `manage_subscription` : super admin, admin finance). Un commerçant
+        # passe toujours par les actions `subscribe` / `renew` / `change-plan`,
+        # qui créent un paiement et calculent dates et statut côté serveur :
+        # sans ce contrôle il pouvait s'activer une formule sans payer.
+        if not self.request.user.has_permission("manage_subscription"):
+            raise PermissionDenied(
+                "Utilisez les actions « subscribe », « renew » ou « change-plan » pour gérer votre abonnement."
+            )
+
     def perform_create(self, serializer):
-        # Réservé à l'admin (cas d'exception : accorder un abonnement
-        # manuellement) — un commerçant passe toujours par l'action
-        # `subscribe` du plan, qui calcule dates/statut correctement.
-        if not self.request.user.is_admin():
-            raise PermissionDenied("Utilisez l'action « subscribe » d'une offre pour vous abonner.")
+        self._require_subscription_manager()
+        serializer.save()
+
+    def perform_update(self, serializer):
+        self._require_subscription_manager()
         serializer.save()
 
     @action(detail=False, methods=["get"], url_path="me")

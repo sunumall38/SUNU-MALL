@@ -178,6 +178,9 @@ class Token(models.Model):
     class TokenType(models.TextChoices):
         EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
         PASSWORD_RESET = 'password_reset', 'Password Reset'
+        # Lien de connexion à usage unique envoyé à un client invité qui revient
+        # commander (apps/auth). Seule l'empreinte SHA-256 du jeton est stockée.
+        GUEST_LOGIN = 'guest_login', 'Guest Login Link'
 
     id = models.AutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tokens')
@@ -219,9 +222,10 @@ class PhoneOTP(models.Model):
 
     @classmethod
     def generate_code(cls):
-        import random
+        # Générateur cryptographique : `random` est prédictible.
+        import secrets
 
-        return f"{random.randint(0, 999999):06d}"
+        return f"{secrets.randbelow(10 ** 6):06d}"
 
     @staticmethod
     def _hash(code):
@@ -243,8 +247,10 @@ class PhoneOTP(models.Model):
             return False
         candidate = self._hash(code)
         if not secrets.compare_digest(candidate, self.code_hash):
-            self.attempts += 1
-            self.save(update_fields=["attempts"])
+            # Incrément atomique en base : des requêtes simultanées ne peuvent
+            # plus dépasser le nombre d'essais autorisé.
+            PhoneOTP.objects.filter(pk=self.pk).update(attempts=models.F("attempts") + 1)
+            self.refresh_from_db(fields=["attempts"])
             return False
         self.verified_at = timezone.now()
         self.save(update_fields=["verified_at"])

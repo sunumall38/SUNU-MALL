@@ -29,6 +29,14 @@ Les identifiants de paiement, SMTP et Anthropic sont optionnels au démarrage.
 `PAYMENT_SANDBOX=True` est volontairement conservé tant que les identifiants
 marchands de production ne sont pas installés et validés.
 
+> **Avant l'ouverture commerciale** : passer `PAYMENT_SANDBOX` à `False` sur
+> les trois services (`api`, `worker`, `scheduler`) *avant* d'installer les
+> clés Wave / Orange Money. En mode sandbox, un client peut valider lui-même
+> son paiement et le webhook accepte toute notification sans signature.
+> `config.settings.prod` refuse de démarrer si le sandbox est actif avec de
+> vraies clés, ou si `WAVE_API_KEY` est renseignée sans `WAVE_WEBHOOK_SECRET`
+> (voir `backend/config/settings/checks.py`).
+
 ## Commandes de contrôle
 
 ```bash

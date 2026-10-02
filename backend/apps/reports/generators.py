@@ -342,6 +342,29 @@ GENERATORS = {
 
 
 # ---------------------------------------------------------------- rendus
+def _csv_safe(value):
+    """Neutralise l'injection de formules dans un tableur.
+
+    Un nom de boutique ou un motif saisi par un utilisateur et commençant par
+    `=`, `+`, `-` ou `@` serait exécuté comme une formule à l'ouverture du CSV
+    par l'administrateur : on le préfixe d'une apostrophe pour le forcer en
+    texte. Les nombres, y compris les montants négatifs, ne sont pas touchés.
+    """
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value).replace("\n", " ").replace("\r", " ")
+    if text[:1] == "-":
+        # Un montant négatif reste un nombre ; tout autre texte est neutralisé.
+        try:
+            float(text.replace(" ", "").replace(",", "."))
+            return text
+        except ValueError:
+            return "'" + text
+    if text[:1] in ("=", "+", "@", "\t"):
+        return "'" + text
+    return text
+
+
 def render_csv(report):
     """Sérialise un rapport en CSV (une section = un tableau)."""
     buffer = io.StringIO()
@@ -352,13 +375,13 @@ def render_csv(report):
     for section in report["sections"]:
         writer.writerow([section["heading"].upper()])
         for label, value in section.get("kpis", []):
-            writer.writerow([label, value])
+            writer.writerow([_csv_safe(label), _csv_safe(value)])
         table = section.get("table")
         if table:
             writer.writerow([])
             writer.writerow(table["columns"])
             for row in table["rows"]:
-                writer.writerow([str(cell).replace("\n", " ") for cell in row])
+                writer.writerow([_csv_safe(cell) for cell in row])
         writer.writerow([])
     return buffer.getvalue().encode("utf-8-sig")
 

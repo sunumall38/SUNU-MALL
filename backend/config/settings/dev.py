@@ -21,6 +21,14 @@ CSRF_TRUSTED_ORIGINS = [
 # en prod (config/settings/base.py). On ne repose pas sur DEBUG car Django
 # force DEBUG=False pendant `manage.py test`.
 AUTH_ANON_THROTTLE_RATE = None
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,  # noqa: F405
+    "DEFAULT_THROTTLE_RATES": {
+        **REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],  # noqa: F405
+        "phone_otp_request": None,
+        "phone_otp_verify": None,
+    },
+}
 
 # Aucun fournisseur SMS n'étant branché, on révèle le code OTP téléphone
 # dans la réponse de l'endpoint d'envoi pour le développement. Les settings

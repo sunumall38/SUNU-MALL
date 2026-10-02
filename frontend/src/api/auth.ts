@@ -27,8 +27,19 @@ export function resendVerification(email: string) {
   return apiPost<{ message: string }>("/auth/resend-verification/", { email }, { auth: false });
 }
 
+/** Réponse quand l'email appartient déjà à un client invité : un lien lui est envoyé. */
+export interface GuestLoginLinkSent {
+  login_link_sent: true;
+  message: string;
+}
+
 export function guestCheckout(payload: { email: string; first_name: string; last_name?: string; phone: string }) {
-  return apiPost<AuthResponse>("/auth/guest-checkout/", payload, { auth: false });
+  return apiPost<AuthResponse | GuestLoginLinkSent>("/auth/guest-checkout/", payload, { auth: false });
+}
+
+/** Échange le lien reçu par email contre une session invité. */
+export function guestLogin(token: string) {
+  return apiPost<AuthResponse>("/auth/guest-login/", { token }, { auth: false });
 }
 
 export function setPassword(password: string) {

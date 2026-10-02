@@ -3,7 +3,7 @@ import { FileText, Download } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
-import { apiGet } from "@/lib/api";
+import { apiDownload, apiErrorMessage } from "@/lib/api";
 
 const REPORT_TYPES = [
   { key: "global", label: "Rapport global", description: "Vue d'ensemble de la plateforme" },
@@ -20,13 +20,15 @@ const REPORT_TYPES = [
 export default function AdminReportsPage() {
   const [generating, setGenerating] = useState<string | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
   const handleExport = async (type: string, format: string) => {
-    setGenerating(type);
+    setGenerating(`${type}-${format}`);
+    setError(null);
     try {
-      const data = await apiGet<{ url: string }>(`/reports/${type}/?fmt=${format}`);
-      window.open(data.url, "_blank");
-    } catch {
-      // error toast could be added
+      await apiDownload(`/reports/${type}/?fmt=${format}`, `rapport-${type}.${format}`);
+    } catch (err) {
+      setError(apiErrorMessage(err, "Le rapport n'a pas pu être généré."));
     } finally {
       setGenerating(null);
     }
@@ -38,6 +40,11 @@ export default function AdminReportsPage() {
       <Card>
         <CardTitle>Rapports & Exports</CardTitle>
         <p className="mt-2 text-sm text-muted-foreground">Générez et téléchargez des rapports détaillés.</p>
+        {error && (
+          <p role="alert" className="mt-3 rounded-lg border border-danger/30 bg-red-50 px-3.5 py-2.5 text-sm text-danger">
+            {error}
+          </p>
+        )}
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {REPORT_TYPES.map((report) => (
             <div key={report.key} className="rounded-xl border border-border p-4">

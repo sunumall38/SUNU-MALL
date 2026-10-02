@@ -127,3 +127,36 @@ export const apiPut = <T>(path: string, body?: unknown, options?: Omit<RequestOp
 
 export const apiDelete = <T>(path: string, options?: Omit<RequestOptions, "method" | "body">) =>
   request<T>(path, { ...options, method: "DELETE" });
+
+/**
+ * Télécharge un fichier protégé (rapport admin…). Le jeton part dans l'en-tête
+ * Authorization — jamais dans l'URL — puis le fichier est remis au navigateur.
+ */
+export async function apiDownload(path: string, fallbackName: string, isRetry = false): Promise<void> {
+  const token = useAuthStore.getState().accessToken;
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (res.status === 401 && !isRetry) {
+    const newToken = await refreshAccessToken();
+    if (newToken) return apiDownload(path, fallbackName, true);
+  }
+
+  if (!res.ok) {
+    const contentType = res.headers.get("content-type") ?? "";
+    const data = contentType.includes("application/json") ? await res.json() : await res.text();
+    throw new ApiError(res.status, data);
+  }
+
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
