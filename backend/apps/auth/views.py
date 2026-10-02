@@ -354,21 +354,32 @@ class ChangePasswordView(generics.GenericAPIView):
 
 
 def _send_phone_otp_notification(user, phone, plaintext_code):
-    """Envoi du code par SMS via le canal Notification (aucun fournisseur
-    branché à ce jour → la notification reste tracée, jamais réellement
-    envoyée). En dev/test avec PHONE_OTP_REVEAL_CODE, le code est aussi
-    loggé en console pour faciliter le développement."""
+    """Envoi du code par SMS via le canal Notification.
+
+    Le code n'est JAMAIS enregistré : la notification gardée en base (et donc
+    lisible par l'utilisateur via l'API des notifications) ne contient qu'un
+    message neutre ; le code n'est transmis qu'au fournisseur SMS. Sinon
+    l'utilisateur lirait son propre code et « vérifierait » un numéro qu'il ne
+    possède pas.
+
+    Aucun fournisseur SMS n'est branché à ce jour : tant que c'est le cas, le
+    code n'arrive nulle part en production. En dev/test avec
+    PHONE_OTP_REVEAL_CODE, il est loggé en console et renvoyé dans la réponse.
+    """
     from apps.monetization.models import Notification
 
     notification = Notification.objects.create(
         user=user,
         channel=Notification.Channel.SMS,
         subject="Code de vérification SUNU MALL",
-        message=f"Votre code de vérification est : {plaintext_code}. "
+        message="Un code de vérification vient d'être envoyé par SMS à votre numéro. "
                 "Ne le partagez avec personne.",
         metadata={"kind": "phone_otp", "phone": phone},
     )
-    notification.send()
+    notification.send(
+        body=f"SUNU MALL : votre code de vérification est {plaintext_code}. "
+             "Ne le partagez avec personne."
+    )
     if settings.PHONE_OTP_REVEAL_CODE:
         logger.info("OTP téléphone pour %s (%s) : %s", user.email, phone, plaintext_code)
     return notification
@@ -383,6 +394,9 @@ class RequestPhoneOTPView(APIView):
     un nouveau code invalide le précédent (un seul code actif à la fois).
     """
     permission_classes = [permissions.IsAuthenticated]
+    # Limite par compte : chaque demande émet un nouveau code (donc de nouveaux
+    # essais) et, une fois le fournisseur branché, un SMS facturé.
+    throttle_scope = "phone_otp_request"
 
     def post(self, request):
         user = request.user
@@ -426,6 +440,7 @@ class VerifyPhoneOTPView(APIView):
     expiré. Une fois vérifié, `phone_verified` reste acquis sur le compte.
     """
     permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "phone_otp_verify"
 
     def post(self, request):
         user = request.user

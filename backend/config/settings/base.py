@@ -256,6 +256,10 @@ REST_FRAMEWORK = {
         # throttle_scope = "ai" (apps/ia/views.py) — aucune autre vue du
         # projet n'a de scope "ai", donc ce throttle ne les affecte pas.
         "ai": "20/hour",
+        # Vérification du téléphone, par compte : limite l'émission de codes
+        # (brute force par renouvellement, SMS facturés) et les essais.
+        "phone_otp_request": "5/hour",
+        "phone_otp_verify": "20/hour",
     },
 }
 
@@ -311,6 +315,9 @@ CORS_ALLOWED_ORIGINS = config(
     default="http://localhost:3000,http://localhost:3004,http://localhost:3010,http://localhost:3011,http://localhost:8081",
     cast=Csv(),
 )
+# Le frontend (autre origine) doit pouvoir lire le nom du fichier des exports
+# téléchargés (rapports admin).
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 AUTH_USER_MODEL = "users.User"
 

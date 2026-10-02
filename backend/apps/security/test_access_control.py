@@ -11,7 +11,7 @@ Chaque test rejoue une faille constatée et vérifie qu'elle est fermée :
 from datetime import timedelta
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -344,3 +344,82 @@ class GuestCheckoutTakeoverTests(AccessControlTestCase):
         self.assertEqual(strong.status_code, status.HTTP_200_OK)
         guest.refresh_from_db()
         self.assertTrue(guest.check_password("Tabaski-Dakar-2026"))
+
+
+@override_settings(PHONE_OTP_REVEAL_CODE=False)
+class PhoneOtpLeakTests(AccessControlTestCase):
+    """Le code OTP du téléphone n'est lisible nulle part côté utilisateur."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer.phone = "+221 77 123 45 67"
+        self.customer.save(update_fields=["phone"])
+        self.api = self.as_user(self.customer)
+
+    def request_otp(self):
+        from unittest.mock import patch
+
+        from apps.users.models import PhoneOTP
+
+        with patch.object(PhoneOTP, "generate_code", return_value="482913"):
+            return self.api.post("/api/auth/request-phone-otp/", {}, format="json")
+
+    def test_code_is_not_stored_in_the_notification(self):
+        from apps.monetization.models import Notification
+
+        response = self.request_otp()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("debug_code", response.data)
+        notification = Notification.objects.get(user=self.customer)
+        self.assertNotIn("482913", notification.message)
+        self.assertNotIn("482913", str(notification.metadata))
+
+    def test_code_is_not_readable_through_the_notifications_api(self):
+        self.request_otp()
+        response = self.api.get("/api/monetization/notifications/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("482913", response.content.decode())
+
+    def test_code_is_still_handed_to_the_sms_channel(self):
+        from unittest.mock import patch
+
+        from apps.monetization.models import Notification
+
+        with patch.object(Notification, "_send_sms") as send_sms:
+            self.request_otp()
+        (body,), _ = send_sms.call_args
+        self.assertIn("482913", body)
+
+    def test_codes_come_from_a_cryptographic_generator(self):
+        from unittest.mock import patch
+
+        from apps.users.models import PhoneOTP
+
+        with patch("secrets.randbelow", return_value=42) as randbelow:
+            self.assertEqual(PhoneOTP.generate_code(), "000042")
+        randbelow.assert_called_once_with(10 ** 6)
+
+    def test_failed_attempts_are_counted_in_the_database(self):
+        from apps.users.models import PhoneOTP
+
+        self.request_otp()
+        otp = PhoneOTP.objects.get(user=self.customer)
+        stale_copy = PhoneOTP.objects.get(pk=otp.pk)
+        self.assertFalse(otp.verify("000000", 5))
+        # Une seconde requête partie avec l'ancien compteur ne l'écrase pas.
+        self.assertFalse(stale_copy.verify("111111", 5))
+        otp.refresh_from_db()
+        self.assertEqual(otp.attempts, 2)
+
+    def test_otp_requests_are_rate_limited_per_account(self):
+        from unittest.mock import patch
+
+        from django.core.cache import cache
+        from rest_framework.throttling import ScopedRateThrottle
+
+        cache.clear()
+        rates = {"phone_otp_request": "2/hour", "phone_otp_verify": "20/hour", "ai": "20/hour"}
+        with patch.object(ScopedRateThrottle, "THROTTLE_RATES", rates):
+            statuses = [self.request_otp().status_code for _ in range(3)]
+        cache.clear()
+        self.assertEqual(statuses, [201, 201, 429])

@@ -36,12 +36,18 @@ class Notification(models.Model):
     class Meta:
         ordering = ['-created_at']
 
-    def send(self):
-        """Envoie la notification selon son canal (no-op pour push, pas encore implémenté)."""
+    def send(self, body=None):
+        """Envoie la notification selon son canal (no-op pour push, pas encore implémenté).
+
+        `body` remplace le texte réellement transmis au destinataire sans être
+        enregistré : c'est le moyen d'envoyer un secret (code OTP) par SMS tout
+        en ne gardant en base — donc dans l'API des notifications — qu'un
+        message neutre.
+        """
         if self.channel == self.Channel.EMAIL:
             self._send_email()
         elif self.channel == self.Channel.SMS:
-            self._send_sms()
+            self._send_sms(body if body is not None else self.message)
 
     def _send_email(self):
         from django.conf import settings
@@ -59,7 +65,7 @@ class Notification(models.Model):
             logger.exception("Échec de l'envoi de la notification email à %s (sujet : %s)", self.user.email, self.subject)
             self.mark_failed()
 
-    def _send_sms(self):
+    def _send_sms(self, body):
         """
         Aucun fournisseur SMS n'est configuré (Twilio, Africa's Talking,
         API SMS d'un opérateur local, etc.). Brancher l'appel ici une fois
