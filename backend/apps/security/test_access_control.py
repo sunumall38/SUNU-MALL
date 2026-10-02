@@ -297,8 +297,10 @@ class GuestCheckoutTakeoverTests(AccessControlTestCase):
         response = APIClient().post(
             "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": guest.email}
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Aucune session : seulement un lien envoyé à l'adresse du compte.
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertNotIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
         guest.refresh_from_db()
         self.assertEqual(guest.first_name, "Awa")
         self.assertEqual(guest.phone, "+221 77 111 11 11")
@@ -308,7 +310,8 @@ class GuestCheckoutTakeoverTests(AccessControlTestCase):
         response = APIClient().post(
             "/api/auth/guest-checkout/", {**self.PAYLOAD, "email": "Guest@Example.com"}
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertNotIn("access", response.data)
         self.assertEqual(User.objects.filter(email__iexact="guest@example.com").count(), 1)
 
     def test_account_with_password_is_still_refused(self):
@@ -423,3 +426,121 @@ class PhoneOtpLeakTests(AccessControlTestCase):
             statuses = [self.request_otp().status_code for _ in range(3)]
         cache.clear()
         self.assertEqual(statuses, [201, 201, 429])
+
+
+@override_settings(FRONTEND_URL="https://shop.example")
+class GuestLoginLinkTests(AccessControlTestCase):
+    """Un client invité qui revient se reconnecte par un lien reçu par email."""
+
+    PAYLOAD = {"first_name": "Awa", "phone": "+221 77 111 11 11"}
+
+    def setUp(self):
+        super().setUp()
+        self.guest = User.objects.create_user(
+            username="guest@example.com", email="guest@example.com", first_name="Awa",
+        )
+        self.guest.set_unusable_password()
+        self.guest.save()
+
+    def request_link(self, email="guest@example.com"):
+        return APIClient().post("/api/auth/guest-checkout/", {**self.PAYLOAD, "email": email})
+
+    def token_from_last_email(self):
+        import re
+
+        from django.core import mail
+
+        return re.search(r"guest-login\?token=([\w-]+)", mail.outbox[-1].body).group(1)
+
+    def test_link_is_emailed_to_the_account_address_only(self):
+        from django.core import mail
+
+        response = self.request_link()
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertTrue(response.data["login_link_sent"])
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["guest@example.com"])
+        self.assertIn("https://shop.example/guest-login?token=", mail.outbox[0].body)
+        # Le jeton n'apparaît jamais dans la réponse HTTP.
+        self.assertNotIn(self.token_from_last_email(), response.content.decode())
+
+    def test_token_is_stored_hashed(self):
+        from apps.users.models import Token
+
+        self.request_link()
+        raw = self.token_from_last_email()
+        stored = Token.objects.get(user=self.guest, type=Token.TokenType.GUEST_LOGIN)
+        self.assertNotEqual(stored.token, raw)
+        self.assertEqual(len(stored.token), 64)
+
+    def test_link_opens_a_session_once(self):
+        self.request_link()
+        raw = self.token_from_last_email()
+        first = APIClient().post("/api/auth/guest-login/", {"token": raw})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data["user"]["email"], "guest@example.com")
+        self.assertIn("access", first.data)
+        self.guest.refresh_from_db()
+        self.assertTrue(self.guest.is_verified)
+        # Le jeton d'accès émis donne bien accès au compte.
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {first.data['access']}")
+        self.assertEqual(client.get("/api/orders/").status_code, status.HTTP_200_OK)
+
+        second = APIClient().post("/api/auth/guest-login/", {"token": raw})
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertNotIn("access", second.data)
+
+    def test_expired_link_is_refused(self):
+        from apps.users.models import Token
+
+        self.request_link()
+        raw = self.token_from_last_email()
+        Token.objects.filter(user=self.guest).update(
+            expires_at=timezone.now() - timedelta(minutes=1)
+        )
+        response = APIClient().post("/api/auth/guest-login/", {"token": raw})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unknown_or_missing_token_is_refused(self):
+        for payload in ({"token": "nimporte-quoi"}, {"token": ""}, {}):
+            response = APIClient().post("/api/auth/guest-login/", payload)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_repeated_requests_do_not_flood_the_mailbox(self):
+        from django.core import mail
+
+        for _ in range(4):
+            self.assertEqual(self.request_link().status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(GUEST_LOGIN_LINK_COOLDOWN_SECONDS=0)
+    def test_a_new_link_revokes_the_previous_one(self):
+        self.request_link()
+        first = self.token_from_last_email()
+        self.request_link()
+        second = self.token_from_last_email()
+        self.assertNotEqual(first, second)
+        self.assertEqual(
+            APIClient().post("/api/auth/guest-login/", {"token": first}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertEqual(
+            APIClient().post("/api/auth/guest-login/", {"token": second}).status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_link_stops_working_once_a_password_is_set(self):
+        self.request_link()
+        raw = self.token_from_last_email()
+        self.guest.set_password("Tabaski-Dakar-2026")
+        self.guest.save()
+        response = APIClient().post("/api/auth/guest-login/", {"token": raw})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_account_with_password_gets_no_link(self):
+        from django.core import mail
+
+        response = self.request_link(self.customer.email)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(len(mail.outbox), 0)

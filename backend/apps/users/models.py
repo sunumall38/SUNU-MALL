@@ -178,6 +178,9 @@ class Token(models.Model):
     class TokenType(models.TextChoices):
         EMAIL_VERIFICATION = 'email_verification', 'Email Verification'
         PASSWORD_RESET = 'password_reset', 'Password Reset'
+        # Lien de connexion à usage unique envoyé à un client invité qui revient
+        # commander (apps/auth). Seule l'empreinte SHA-256 du jeton est stockée.
+        GUEST_LOGIN = 'guest_login', 'Guest Login Link'
 
     id = models.AutoField(primary_key=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tokens')

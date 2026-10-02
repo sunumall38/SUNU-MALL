@@ -232,6 +232,13 @@ PHONE_OTP_MAX_ATTEMPTS = config("PHONE_OTP_MAX_ATTEMPTS", default=5, cast=int)
 # uniquement par SMS sur le téléphone de l'utilisateur.
 PHONE_OTP_REVEAL_CODE = config("PHONE_OTP_REVEAL_CODE", default=False, cast=bool)
 
+# --- Lien de connexion des clients invités ---
+# Un client qui a déjà commandé sans compte reçoit par email un lien à usage
+# unique pour reprendre sa session : c'est la preuve qu'il contrôle l'adresse.
+GUEST_LOGIN_LINK_TTL_MINUTES = config("GUEST_LOGIN_LINK_TTL_MINUTES", default=15, cast=int)
+# Délai minimal entre deux envois au même compte (anti-inondation de boîte mail).
+GUEST_LOGIN_LINK_COOLDOWN_SECONDS = config("GUEST_LOGIN_LINK_COOLDOWN_SECONDS", default=120, cast=int)
+
 # --- Affectation des courses ---
 # Un livreur ne reçoit une commande que s'il est à moins de ce rayon (km) de
 # la boutique : il doit être assez proche pour venir récupérer le colis.
