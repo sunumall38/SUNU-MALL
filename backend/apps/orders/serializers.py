@@ -283,13 +283,9 @@ class OrderSerializer(serializers.ModelSerializer):
             "total_amount", "delivery_fee", "delivery_type", "status", "can_be_cancelled", "items", "delivery", "payment",
             "created_at", "updated_at",
         ]
-        read_only_fields = [
-            "id", "customer", "customer_name", "customer_email", "store_name",
-            "global_order",
-            "store_address", "store_city", "store_latitude", "store_longitude",
-            "address_detail",
-            "total_amount", "delivery_type", "status", "can_be_cancelled", "items", "delivery", "payment", "created_at", "updated_at",
-        ]
+        # Sérialiseur de lecture : aucun champ d'une commande n'est modifiable
+        # par ce biais (voir OrderViewSet.http_method_names).
+        read_only_fields = fields
 
     def get_customer_name(self, obj):
         return obj.customer.get_full_name() or obj.customer.email

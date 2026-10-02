@@ -1,0 +1,279 @@
+"""
+Tests de non-régression du contrôle d'accès (audit sécurité, phase 1).
+
+Chaque test rejoue une faille constatée et vérifie qu'elle est fermée :
+    C2  un admin spécialisé ne peut plus s'attribuer de rôle ni de permission ;
+    C4  un vendeur ne peut plus modifier ni supprimer un retrait ;
+    C5  un commerçant ne peut plus s'activer un abonnement sans payer ;
+    C6  une commande ne se modifie ni ne se supprime par l'API générique ;
+    C7  un commerçant ne peut plus publier ni réactiver seul sa boutique.
+"""
+from datetime import timedelta
+from decimal import Decimal
+
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.catalog.models import Store
+from apps.commissions.models import Payout
+from apps.kyc.models import SellerKYC
+from apps.monetization.models import Subscription, SubscriptionPlan
+from apps.orders.models import Order
+from apps.users.models import Permission, Role, RolePermission, User, UserRole
+
+
+class AccessControlTestCase(TestCase):
+    def make_user(self, email, *role_names):
+        user = User.objects.create_user(
+            username=email, email=email, password="testpass123", is_verified=True
+        )
+        for name in role_names:
+            role, _ = Role.objects.get_or_create(name=name)
+            UserRole.objects.create(user=user, role=role)
+        return user
+
+    def as_user(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def setUp(self):
+        self.super_admin = self.make_user("super@example.com", Role.RoleName.SUPER_ADMIN)
+        self.support_admin = self.make_user("support@example.com", Role.RoleName.ADMIN_SUPPORT)
+        self.merchant = self.make_user("merchant@example.com", Role.RoleName.MERCHANT)
+        self.customer = self.make_user("customer@example.com", Role.RoleName.CLIENT)
+
+
+class RoleEscalationTests(AccessControlTestCase):
+    """C2 — attribution des rôles et permissions réservée au super admin."""
+
+    def test_specialised_admin_cannot_grant_himself_super_admin(self):
+        role = Role.objects.get(name=Role.RoleName.SUPER_ADMIN)
+        response = self.as_user(self.support_admin).post(
+            "/api/users/user-roles/", {"user": str(self.support_admin.id), "role": role.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(self.support_admin.is_super_admin())
+
+    def test_specialised_admin_cannot_remove_a_role(self):
+        assignment = UserRole.objects.get(user=self.super_admin)
+        response = self.as_user(self.support_admin).delete(
+            f"/api/users/user-roles/{assignment.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(UserRole.objects.filter(pk=assignment.pk).exists())
+
+    def test_specialised_admin_cannot_add_permission_to_his_role(self):
+        role = Role.objects.get(name=Role.RoleName.ADMIN_SUPPORT)
+        permission, _ = Permission.objects.get_or_create(
+            code="admins.manage", defaults={"label": "Gérer les administrateurs"}
+        )
+        response = self.as_user(self.support_admin).post(
+            "/api/users/role-permissions/", {"role": role.id, "permission": permission.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(RolePermission.objects.filter(role=role, permission=permission).exists())
+
+    def test_specialised_admin_can_still_read_assignments(self):
+        response = self.as_user(self.support_admin).get("/api/users/user-roles/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_super_admin_can_grant_a_role(self):
+        role = Role.objects.get(name=Role.RoleName.ADMIN_SUPPORT)
+        response = self.as_user(self.super_admin).post(
+            "/api/users/user-roles/", {"user": str(self.customer.id), "role": role.id}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_specialised_admin_cannot_edit_or_delete_accounts(self):
+        client = self.as_user(self.support_admin)
+        for target in (self.super_admin, self.customer):
+            response = client.patch(f"/api/users/{target.id}/", {"is_active": False})
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            response = client.delete(f"/api/users/{target.id}/")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            target.refresh_from_db()
+            self.assertTrue(target.is_active)
+
+    def test_specialised_admin_can_still_list_users(self):
+        response = self.as_user(self.support_admin).get("/api/users/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_super_admin_can_deactivate_an_account(self):
+        response = self.as_user(self.super_admin).patch(
+            f"/api/users/{self.customer.id}/", {"is_active": False}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.customer.refresh_from_db()
+        self.assertFalse(self.customer.is_active)
+
+
+class PayoutTamperingTests(AccessControlTestCase):
+    """C4 — un retrait ne se modifie ni ne se supprime après sa création."""
+
+    def setUp(self):
+        super().setUp()
+        self.payout = Payout.objects.create(
+            seller=self.merchant, amount=Decimal("1000"), reference="PO-TEST-1"
+        )
+
+    def test_seller_cannot_change_payout_amount(self):
+        client = self.as_user(self.merchant)
+        url = f"/api/commissions/payouts/{self.payout.id}/"
+        for method in (client.patch, client.put):
+            response = method(url, {"amount": "10000000", "method": "wave"})
+            self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.payout.refresh_from_db()
+        self.assertEqual(self.payout.amount, Decimal("1000"))
+
+    def test_seller_cannot_delete_payout(self):
+        response = self.as_user(self.merchant).delete(
+            f"/api/commissions/payouts/{self.payout.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(Payout.objects.filter(pk=self.payout.pk).exists())
+
+    def test_seller_can_still_read_his_payout(self):
+        response = self.as_user(self.merchant).get(
+            f"/api/commissions/payouts/{self.payout.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class SubscriptionTamperingTests(AccessControlTestCase):
+    """C5 — un abonnement ne s'active que par un paiement ou par l'administration."""
+
+    def setUp(self):
+        super().setUp()
+        self.starter = SubscriptionPlan.objects.create(
+            code="T-STARTER", name="T-STARTER", price=2500, billing_cycle="monthly",
+            max_products=10,
+        )
+        self.business = SubscriptionPlan.objects.create(
+            code="T-BUSINESS", name="T-BUSINESS", price=7500, billing_cycle="monthly",
+        )
+        today = timezone.now().date()
+        self.subscription = Subscription.objects.create(
+            plan=self.starter, subscriber_type="merchant", subscriber_id=self.merchant.id,
+            status=Subscription.Status.SUSPENDED,
+            starts_at=today, ends_at=today + timedelta(days=30),
+        )
+        self.url = f"/api/monetization/subscription/{self.subscription.id}/"
+
+    def test_merchant_cannot_activate_or_upgrade_his_subscription(self):
+        response = self.as_user(self.merchant).patch(self.url, {
+            "status": "active", "ends_at": "2099-01-01", "plan": self.business.id,
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.subscription.refresh_from_db()
+        self.assertEqual(self.subscription.status, Subscription.Status.SUSPENDED)
+        self.assertEqual(self.subscription.plan_id, self.starter.id)
+
+    def test_nobody_can_delete_a_subscription(self):
+        for user in (self.merchant, self.super_admin):
+            response = self.as_user(user).delete(self.url)
+            self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(Subscription.objects.filter(pk=self.subscription.pk).exists())
+
+    def test_admin_without_subscription_permission_cannot_write(self):
+        response = self.as_user(self.support_admin).patch(self.url, {"status": "active"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_super_admin_can_reactivate_a_subscription(self):
+        response = self.as_user(self.super_admin).patch(self.url, {"status": "active"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.subscription.refresh_from_db()
+        self.assertEqual(self.subscription.status, Subscription.Status.ACTIVE)
+
+
+class OrderTamperingTests(AccessControlTestCase):
+    """C6 — une commande ne se modifie ni ne se supprime par l'API générique."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = Store.objects.create(
+            owner=self.merchant, name="Boutique Test", status=Store.Status.ACTIVE
+        )
+        self.other_store = Store.objects.create(
+            owner=self.make_user("other@example.com", Role.RoleName.MERCHANT),
+            name="Autre Boutique", status=Store.Status.ACTIVE,
+        )
+        self.order = Order.objects.create(
+            customer=self.customer, store=self.store,
+            total_amount=Decimal("12000"), delivery_fee=Decimal("2000"),
+        )
+        self.url = f"/api/orders/{self.order.id}/"
+
+    def test_seller_cannot_change_delivery_fee_or_store(self):
+        client = self.as_user(self.merchant)
+        response = client.patch(self.url, {
+            "delivery_fee": "12000", "store": str(self.other_store.id),
+        })
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.delivery_fee, Decimal("2000"))
+        self.assertEqual(self.order.store_id, self.store.id)
+
+    def test_order_cannot_be_deleted_by_any_party(self):
+        for user in (self.customer, self.merchant, self.super_admin):
+            response = self.as_user(user).delete(self.url)
+            self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(Order.objects.filter(pk=self.order.pk).exists())
+
+    def test_direct_order_creation_is_refused(self):
+        response = self.as_user(self.customer).post(
+            "/api/orders/", {"store": str(self.store.id)}
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertEqual(Order.objects.count(), 1)
+
+    def test_parties_can_still_read_the_order(self):
+        for user in (self.customer, self.merchant):
+            response = self.as_user(user).get(self.url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class StoreModerationBypassTests(AccessControlTestCase):
+    """C7 — seul l'administration publie, suspend ou réactive une boutique."""
+
+    def setUp(self):
+        super().setUp()
+        SellerKYC.objects.create(
+            seller=self.merchant, status=SellerKYC.Status.VERIFIED,
+            document_type="cni", document_front="kyc/seller/x/front.jpg",
+            document_back="kyc/seller/x/back.jpg",
+        )
+
+    def test_merchant_cannot_create_an_already_active_store(self):
+        response = self.as_user(self.merchant).post(
+            "/api/catalog/stores/", {"name": "Ma Boutique", "status": "active"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        store = Store.objects.get(owner=self.merchant)
+        self.assertEqual(store.status, Store.Status.INACTIVE)
+
+    def test_merchant_cannot_reactivate_a_suspended_store(self):
+        store = Store.objects.create(
+            owner=self.merchant, name="Suspendue", status=Store.Status.SUSPENDED
+        )
+        response = self.as_user(self.merchant).patch(
+            f"/api/catalog/stores/{store.id}/", {"status": "active", "city": "Thiès"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.SUSPENDED)
+        # Les champs légitimes restent modifiables par le propriétaire.
+        self.assertEqual(store.city, "Thiès")
+
+    def test_admin_can_still_change_store_status(self):
+        store = Store.objects.create(
+            owner=self.merchant, name="À suspendre", status=Store.Status.ACTIVE
+        )
+        response = self.as_user(self.super_admin).patch(
+            f"/api/catalog/stores/{store.id}/", {"status": "suspended"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.SUSPENDED)

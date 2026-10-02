@@ -15,6 +15,21 @@ class IsAdmin(permissions.BasePermission):
         )
 
 
+class IsSuperAdmin(permissions.BasePermission):
+    """Permission réservée au super admin (ou à l'ancien rôle admin maître).
+
+    À utiliser pour tout ce qui touche à l'attribution des rôles et des
+    permissions : un admin spécialisé (KYC, support, finance…) ne doit jamais
+    pouvoir s'accorder lui-même davantage de droits.
+    """
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and request.user.is_super_admin()
+        )
+
+
 class IsMerchant(permissions.BasePermission):
     """Permission pour les commerçants uniquement."""
     def has_permission(self, request, view):

@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -60,6 +60,17 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+    # Une commande ne se modifie ni ne se supprime par l'API générique : elle
+    # naît de `checkout`, évolue par les actions dédiées (`cancel`, statuts de
+    # livraison, paiement) et reste comme pièce comptable. PUT/PATCH/DELETE
+    # permettaient au vendeur de changer `delivery_fee` (commission annulée)
+    # et à n'importe quel acteur de la commande de la supprimer.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        raise MethodNotAllowed(
+            "POST", detail="Passez par l'action « checkout » pour créer une commande."
+        )
 
     def get_queryset(self):
         user = self.request.user
