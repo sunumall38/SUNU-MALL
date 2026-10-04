@@ -1,0 +1,11 @@
+# En-têtes servis par Cloudflare Pages (et Netlify, même syntaxe).
+
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=()
+
+# Fichiers au nom haché par Vite : cache longue durée.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

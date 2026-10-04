@@ -1,0 +1,113 @@
+# =========================================================
+# SUNU MALL — Blueprint Render (API Django)
+#
+# Offre gratuite de Render : un service web, une base PostgreSQL et un
+# Key Value (Redis). Le frontend est servi par Cloudflare Pages.
+# Marche à suivre : docs/deploiement-render-cloudflare.md
+#
+# Limites de l'offre gratuite à connaître :
+#   - le service web s'endort après 15 minutes sans trafic ;
+#   - la base PostgreSQL gratuite expire 30 jours après sa création ;
+#   - pas de worker ni de tâche planifiée : les traitements quotidiens sont
+#     lancés au démarrage du service (manage.py run_daily_tasks --if-due).
+# =========================================================
+
+services:
+  - type: web
+    name: sunu-mall-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    autoDeployTrigger: commit
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Migrations puis traitements quotidiens avant de servir le trafic. Un
+    # échec des traitements quotidiens n'empêche pas l'API de démarrer.
+    dockerCommand: sh -c "python manage.py migrate --noinput && (python manage.py run_daily_tasks --if-due || true) && exec /app/railway-entrypoint.sh"
+    healthCheckPath: /health/live/
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.prod
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: PROCESS_TYPE
+        value: web
+      # 512 Mo de RAM : un seul worker gunicorn. Les threads servent aussi le
+      # flux temps réel du suivi de livraison (une connexion = un thread).
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: GUNICORN_THREADS
+        value: "8"
+      # TLS terminé par Render ; ses contrôles de santé arrivent en HTTP.
+      - key: SECURE_SSL_REDIRECT
+        value: "False"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sunu-mall-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: sunu-mall-redis
+          type: keyvalue
+          property: connectionString
+      # Paiements simulés pendant la démonstration. À passer à False AVANT
+      # d'installer les clés Wave / Orange Money (voir config/settings/checks.py).
+      - key: PAYMENT_SANDBOX
+        value: "True"
+
+      # --- À renseigner à la création (aucune valeur dans le dépôt) ---
+      # Adresse publique du frontend Cloudflare Pages, sans barre finale,
+      # ex. https://sunu-mall.pages.dev (la même dans les deux variables).
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # Email transactionnel (Resend, par HTTPS : Render bloque le SMTP).
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ADMIN_NOTIFICATION_EMAIL
+        sync: false
+      # Stockage S3 des images (bucket média) et des pièces KYC (bucket privé).
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
+      - key: MINIO_BUCKET
+        sync: false
+      - key: MINIO_USE_SSL
+        value: "True"
+      # Région du fournisseur S3 (ex. eu-central-003 chez Backblaze B2,
+      # auto chez Cloudflare R2).
+      - key: S3_REGION_NAME
+        sync: false
+      - key: S3_QUERYSTRING_AUTH
+        value: "True"
+      - key: KYC_STORAGE_BACKEND
+        value: s3
+      - key: KYC_STORAGE_BUCKET
+        sync: false
+      - key: KYC_STORAGE_AUTO_CREATE
+        value: "False"
+
+  - type: keyvalue
+    name: sunu-mall-redis
+    plan: free
+    region: frankfurt
+    # Accessible uniquement depuis le réseau privé de Render.
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: sunu-mall-db
+    plan: free
+    region: frankfurt
+    databaseName: sunu_mall
+    user: sunu_mall
+    postgresMajorVersion: "16"

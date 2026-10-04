@@ -18,6 +18,11 @@ SECRET_KEY = DJANGO_SECRET_KEY
 
 # idem pour les hosts autorisés : vide en prod = 400 sur le domaine réel.
 DJANGO_ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="", cast=Csv())
+# Render fournit le nom d'hôte public du service : on l'accepte d'office, pour
+# ne pas avoir à le deviner avant la création du service.
+RENDER_EXTERNAL_HOSTNAME = config("RENDER_EXTERNAL_HOSTNAME", default="").strip()
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in DJANGO_ALLOWED_HOSTS:
+    DJANGO_ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 if not DJANGO_ALLOWED_HOSTS:
     raise ImproperlyConfigured(
         "DJANGO_ALLOWED_HOSTS est obligatoire en production — "
@@ -46,6 +51,11 @@ if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
         "Un service email réel est obligatoire en production — configurez "
         "EMAIL_PROVIDER=resend (recommandé sur Railway) ou EMAIL_PROVIDER=smtp."
     )
+
+# Sur Render, l'URL publique de l'API (cible des webhooks de paiement) se
+# déduit du service si BACKEND_URL n'est pas renseignée explicitement.
+if RENDER_EXTERNAL_HOSTNAME and not config("BACKEND_URL", default=""):
+    BACKEND_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}/api"
 
 # TLS terminé par nginx : Django doit savoir que la requête arrive en https,
 # sinon SECURE_SSL_REDIRECT boucle (il redirige les requêtes qu'il croit en http).
