@@ -220,10 +220,9 @@ SECURITY_LOG_RETENTION_DAYS = config("SECURITY_LOG_RETENTION_DAYS", default=365,
 DISABLE_SECURITY_LOGS = config("DISABLE_SECURITY_LOGS", default=False, cast=bool)
 
 # --- Vérification du téléphone par code OTP ---
-# Code à 6 chiffres à durée de vie courte et essais limités. L'envoi SMS est
-# branché sur le canal Notification.SMS (apps/monetization) : sans fournisseur
-# configuré, le code est tracé et loggé en console — voir
-# apps/auth/views.RequestPhoneOTPView pour le branchement du fournisseur.
+# "local" conserve le générateur interne pour le développement ; "twilio"
+# délègue entièrement l'envoi, l'expiration et les essais à Twilio Verify.
+PHONE_OTP_PROVIDER = config("PHONE_OTP_PROVIDER", default="local").strip().lower()
 PHONE_OTP_TTL_MINUTES = config("PHONE_OTP_TTL_MINUTES", default=10, cast=int)
 PHONE_OTP_MAX_ATTEMPTS = config("PHONE_OTP_MAX_ATTEMPTS", default=5, cast=int)
 # REVEAL : retourner le code OTP dans la réponse de la requête d'envoi.
@@ -231,6 +230,15 @@ PHONE_OTP_MAX_ATTEMPTS = config("PHONE_OTP_MAX_ATTEMPTS", default=5, cast=int)
 # dans config/settings/dev.py) — JAMAIS en production : le code doit arriver
 # uniquement par SMS sur le téléphone de l'utilisateur.
 PHONE_OTP_REVEAL_CODE = config("PHONE_OTP_REVEAL_CODE", default=False, cast=bool)
+
+# Twilio Verify. En production, privilégier une API Key restreinte ; le couple
+# Account SID / Auth Token reste accepté pour une première mise en service.
+TWILIO_ACCOUNT_SID = config("TWILIO_ACCOUNT_SID", default="")
+TWILIO_AUTH_TOKEN = config("TWILIO_AUTH_TOKEN", default="")
+TWILIO_API_KEY_SID = config("TWILIO_API_KEY_SID", default="")
+TWILIO_API_KEY_SECRET = config("TWILIO_API_KEY_SECRET", default="")
+TWILIO_VERIFY_SERVICE_SID = config("TWILIO_VERIFY_SERVICE_SID", default="")
+TWILIO_HTTP_TIMEOUT_SECONDS = config("TWILIO_HTTP_TIMEOUT_SECONDS", default=10, cast=int)
 
 # --- Lien de connexion des clients invités ---
 # Un client qui a déjà commandé sans compte reçoit par email un lien à usage

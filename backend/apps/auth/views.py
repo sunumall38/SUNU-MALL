@@ -25,6 +25,7 @@ from .utils import (
     email_verification_token, hash_guest_login_token, send_guest_login_link,
     send_verification_email,
 )
+from .phone_verification import check_phone_verification, start_phone_verification
 from apps.security.utils import log_security_event
 from apps.users.models import PhoneOTP, Token, User
 
@@ -475,6 +476,19 @@ class RequestPhoneOTPView(APIView):
         if not user.phone:
             raise ValidationError({"phone": "Aucun numéro de téléphone sur ce compte."})
 
+        if settings.PHONE_OTP_PROVIDER == "twilio":
+            start_phone_verification(user.phone)
+            log_security_event(
+                user,
+                "PHONE_CHANGE",
+                request,
+                metadata={"phone": user.phone, "action": "request_otp", "provider": "twilio"},
+            )
+            return Response(
+                {"message": "Code de vérification envoyé par SMS."},
+                status=status.HTTP_201_CREATED,
+            )
+
         code = PhoneOTP.generate_code()
         expires_at = timezone.now() + timedelta(minutes=settings.PHONE_OTP_TTL_MINUTES)
 
@@ -517,6 +531,27 @@ class VerifyPhoneOTPView(APIView):
         code = str((request.data or {}).get("code", "")).strip()
         if not code or not code.isdigit():
             raise ValidationError({"code": "Code OTP requis (6 chiffres)."})
+
+        if not user.phone:
+            raise ValidationError({"phone": "Aucun numéro de téléphone sur ce compte."})
+
+        if settings.PHONE_OTP_PROVIDER == "twilio":
+            if not check_phone_verification(user.phone, code):
+                raise ValidationError({"code": "Code incorrect ou expiré. Redemandez-en un."})
+            user.phone_verified = True
+            user.phone_verified_at = timezone.now()
+            user.save(update_fields=["phone_verified", "phone_verified_at", "updated_at"])
+            log_security_event(
+                user,
+                "PHONE_CHANGE",
+                request,
+                metadata={"phone": user.phone, "action": "verify_otp", "provider": "twilio"},
+            )
+            return Response({
+                "message": "Numéro de téléphone vérifié.",
+                "phone_verified": True,
+                "phone": user.phone,
+            })
 
         otp = PhoneOTP.objects.filter(user=user, verified_at__isnull=True).first()
         if otp is None:
