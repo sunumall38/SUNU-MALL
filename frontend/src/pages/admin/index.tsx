@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Spinner } from "@/components/ui/Spinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { TrendChart } from "@/components/ui/TrendChart";
+import { useAuthStore } from "@/store/authStore";
 import type { Paginated } from "@/types";
 
 function toTrendPoints(daily: DailyCount[]) {
@@ -29,22 +30,30 @@ interface ComplaintRow {
 }
 
 const QUICK_ACTIONS = [
-  { label: "Valider les boutiques", to: "/admin-shops", icon: StoreIcon, description: "Demandes d'ouverture" },
-  { label: "Plaintes & litiges", to: "/admin-complaints", icon: MessageSquare, description: "Traitement du support" },
-  { label: "Vérifications KYC", to: "/admin-kyc-sellers", icon: ShieldCheck, description: "Dossiers vendeurs & livreurs" },
-  { label: "Remboursements", to: "/admin-refunds", icon: RefreshCw, description: "Demandes à traiter" },
-  { label: "Incidents techniques", to: "/admin-incidents", icon: Wrench, description: "Résolution & statut" },
-  { label: "Rapports & exports", to: "/admin-reports", icon: FileText, description: "PDF et CSV" },
+  { label: "Valider les boutiques", to: "/admin-shops", icon: StoreIcon, description: "Demandes d'ouverture", permission: "view_store" },
+  { label: "Plaintes & litiges", to: "/admin-complaints", icon: MessageSquare, description: "Traitement du support", permission: "complaints.view" },
+  { label: "Vérifications KYC", to: "/admin-kyc-sellers", icon: ShieldCheck, description: "Dossiers vendeurs & livreurs", permission: "kyc.view" },
+  { label: "Remboursements", to: "/admin-refunds", icon: RefreshCw, description: "Demandes à traiter", permission: "refunds.view" },
+  { label: "Incidents techniques", to: "/admin-incidents", icon: Wrench, description: "Résolution & statut", permission: "ops.manage" },
+  { label: "Rapports & exports", to: "/admin-reports", icon: FileText, description: "PDF et CSV", permission: "reports.view" },
   { label: "Recherche avancée", to: "/admin-search", icon: SearchIcon, description: "Toutes entités" },
 ];
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
+  const isFullAdmin = user?.roles.some((role) => role === "admin" || role === "super_admin") ?? false;
+  const hasPermission = (permission?: string) =>
+    !permission || isFullAdmin || user?.permissions?.includes(permission);
+  const quickActions = QUICK_ACTIONS.filter((action) => hasPermission(action.permission));
+  const canViewComplaints = hasPermission("complaints.view");
   const { data: stats, loading: loadingStats, error: statsError, refetch: refetchStats } = useAsync(() => usersApi.getDashboardStats(), []);
 
   const openComplaintsFetcher = useCallback(
-    () => apiGet<Paginated<ComplaintRow>>("/complaints/complaints/?status=open&priority=critical&page_size=1"),
-    [],
+    () => canViewComplaints
+      ? apiGet<Paginated<ComplaintRow>>("/complaints/complaints/?status=open&priority=critical&page_size=1")
+      : Promise.resolve({ count: 0, next: null, previous: null, results: [] }),
+    [canViewComplaints],
   );
   const { data: criticalComplaints } = useAsync(openComplaintsFetcher, []);
 
@@ -77,7 +86,11 @@ export default function AdminDashboardPage() {
       to: "/admin-complaints?status=open&priority=critical",
       tone: (criticalComplaints?.count ?? 0) > 0 ? "red" : undefined,
     },
-  ].filter((a) => a.tone);
+  ].filter((a) => a.tone && (
+    a.to.startsWith("/admin-shops") ? hasPermission("view_store")
+      : a.to.startsWith("/admin-users") ? hasPermission("view_user")
+        : hasPermission("complaints.view")
+  ));
 
   return (
     <div className="flex flex-col gap-6">
@@ -145,7 +158,7 @@ export default function AdminDashboardPage() {
         <Card>
           <CardTitle>Actions rapides</CardTitle>
           <div className="grid gap-2 sm:grid-cols-2">
-            {QUICK_ACTIONS.map((action) => (
+            {quickActions.map((action) => (
               <button
                 key={action.to}
                 onClick={() => navigate(action.to)}

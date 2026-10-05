@@ -41,6 +41,8 @@ export interface AuthUser {
   last_name: string;
   phone: string;
   roles: Role[];
+  /** Droits fins des rôles administrateurs spécialisés. */
+  permissions?: string[];
   is_verified: boolean;
   /** false pour un compte invité (créé via guest-checkout, sans mot de passe défini). */
   has_password: boolean;
