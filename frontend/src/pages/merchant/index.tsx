@@ -23,7 +23,6 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KycStatusCard } from "@/components/kyc/KycStatusCard";
 import { SubscriptionStatusCard } from "@/components/merchant/SubscriptionStatusCard";
 import { ProductLimitBanner } from "@/components/merchant/ProductLimitBanner";
 import { formatDate, formatPrice } from "@/lib/utils";
@@ -109,11 +108,10 @@ export default function MerchantDashboardPage() {
   if (own.length === 0) {
     return (
       <div className="flex flex-col gap-6">
-        <KycStatusCard kind="seller" />
         <EmptyState
           icon={StoreIcon}
           title="Vous n'avez pas encore de boutique"
-          description="Créez votre boutique pour commencer à publier des produits."
+          description="Créez d'abord votre boutique. Après sa validation par l'administration, vous pourrez envoyer votre dossier KYC."
           action={
             <Link to="/create-shop">
               <Button>Créer ma boutique</Button>
@@ -134,8 +132,6 @@ export default function MerchantDashboardPage() {
           </Button>
         </Link>
       </div>
-
-      <KycStatusCard kind="seller" />
 
       <SubscriptionStatusCard account={account} />
 
