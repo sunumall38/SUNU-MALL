@@ -117,7 +117,7 @@ export function KycStatusCard({ kind }: Props) {
           <div className="flex items-center justify-between gap-3">
             <Badge variant="default">Aucun dossier soumis</Badge>
             <Button size="sm" onClick={() => setShowForm(true)}>
-              <UploadCloud className="h-4 w-4" /> Envoyer mes documents
+              <UploadCloud className="h-4 w-4" /> Envoyer ma pièce d'identité
             </Button>
           </div>
         ) : (
@@ -147,7 +147,7 @@ export function KycStatusCard({ kind }: Props) {
                 Annuler
               </Button>
               <Button size="sm" loading={submitting} onClick={handleSubmit}>
-                <UploadCloud className="h-4 w-4" /> Envoyer
+                <UploadCloud className="h-4 w-4" /> Soumettre à l'administration
               </Button>
             </div>
           </div>

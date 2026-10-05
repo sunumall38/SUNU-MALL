@@ -230,6 +230,9 @@ PHONE_OTP_MAX_ATTEMPTS = config("PHONE_OTP_MAX_ATTEMPTS", default=5, cast=int)
 # dans config/settings/dev.py) — JAMAIS en production : le code doit arriver
 # uniquement par SMS sur le téléphone de l'utilisateur.
 PHONE_OTP_REVEAL_CODE = config("PHONE_OTP_REVEAL_CODE", default=False, cast=bool)
+PHONE_REGISTRATION_TOKEN_TTL_HOURS = config(
+    "PHONE_REGISTRATION_TOKEN_TTL_HOURS", default=24, cast=int
+)
 
 # Twilio Verify. En production, privilégier une API Key restreinte ; le couple
 # Account SID / Auth Token reste accepté pour une première mise en service.
