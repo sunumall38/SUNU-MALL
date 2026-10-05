@@ -47,6 +47,21 @@ if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
         "EMAIL_PROVIDER=resend (recommandé sur Railway) ou EMAIL_PROVIDER=smtp."
     )
 
+if PHONE_OTP_PROVIDER not in {"local", "twilio"}:
+    raise ImproperlyConfigured("PHONE_OTP_PROVIDER doit valoir local ou twilio.")
+if PHONE_OTP_PROVIDER == "twilio":
+    if not TWILIO_VERIFY_SERVICE_SID:
+        raise ImproperlyConfigured(
+            "TWILIO_VERIFY_SERVICE_SID est obligatoire quand PHONE_OTP_PROVIDER=twilio."
+        )
+    api_key_ready = bool(TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET)
+    account_token_ready = bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN)
+    if not (api_key_ready or account_token_ready):
+        raise ImproperlyConfigured(
+            "Configurez TWILIO_API_KEY_SID et TWILIO_API_KEY_SECRET (recommandé), "
+            "ou TWILIO_ACCOUNT_SID et TWILIO_AUTH_TOKEN."
+        )
+
 # TLS terminé par nginx : Django doit savoir que la requête arrive en https,
 # sinon SECURE_SSL_REDIRECT boucle (il redirige les requêtes qu'il croit en http).
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

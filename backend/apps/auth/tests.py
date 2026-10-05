@@ -1,7 +1,7 @@
 """
 Tests unitaires pour l'application auth.
 """
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.core import mail
@@ -745,6 +745,91 @@ class PhoneOTPTests(TestCase):
             response = self.client.post("/api/auth/request-phone-otp/", {}, format="json")
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertNotIn("debug_code", response.data)
+
+
+@override_settings(
+    PHONE_OTP_PROVIDER="twilio",
+    PHONE_OTP_REVEAL_CODE=False,
+    TWILIO_ACCOUNT_SID="AC_test",
+    TWILIO_AUTH_TOKEN="secret",
+    TWILIO_API_KEY_SID="",
+    TWILIO_API_KEY_SECRET="",
+    TWILIO_VERIFY_SERVICE_SID="VA_test",
+    TWILIO_HTTP_TIMEOUT_SECONDS=7,
+)
+class TwilioPhoneOTPTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="twilio@example.com",
+            email="twilio@example.com",
+            password="testpassword123",
+            is_verified=True,
+            phone="+221771234567",
+        )
+        self.client.force_authenticate(self.user)
+
+    @patch("apps.auth.views.start_phone_verification")
+    def test_request_uses_twilio_without_local_code(self, start):
+        response = self.client.post("/api/auth/request-phone-otp/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertNotIn("debug_code", response.data)
+        self.assertFalse(self.user.phone_otps.exists())
+        start.assert_called_once_with("+221771234567")
+
+    @patch("apps.auth.views.check_phone_verification", return_value=True)
+    def test_approved_twilio_code_verifies_phone(self, check):
+        response = self.client.post(
+            "/api/auth/verify-phone-otp/", {"code": "123456"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.phone_verified)
+        check.assert_called_once_with("+221771234567", "123456")
+
+    @patch("apps.auth.views.check_phone_verification", return_value=False)
+    def test_rejected_twilio_code_does_not_verify_phone(self, check):
+        response = self.client.post(
+            "/api/auth/verify-phone-otp/", {"code": "000000"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.phone_verified)
+
+    @patch("apps.auth.phone_verification.requests.post")
+    def test_twilio_request_uses_verify_api_and_e164_phone(self, post):
+        post.return_value = Mock(
+            ok=True,
+            status_code=201,
+            json=Mock(return_value={"status": "pending"}),
+        )
+        from apps.auth.phone_verification import start_phone_verification
+
+        start_phone_verification("+221771234567")
+
+        post.assert_called_once_with(
+            "https://verify.twilio.com/v2/Services/VA_test/Verifications",
+            data={"To": "+221771234567", "Channel": "sms"},
+            auth=("AC_test", "secret"),
+            timeout=7,
+        )
+
+    @patch("apps.auth.phone_verification.requests.post")
+    def test_twilio_api_key_is_preferred_to_auth_token(self, post):
+        post.return_value = Mock(
+            ok=True,
+            status_code=201,
+            json=Mock(return_value={"status": "pending"}),
+        )
+        from apps.auth.phone_verification import start_phone_verification
+
+        with override_settings(TWILIO_API_KEY_SID="SK_test", TWILIO_API_KEY_SECRET="key-secret"):
+            start_phone_verification("+221771234567")
+
+        self.assertEqual(post.call_args.kwargs["auth"], ("SK_test", "key-secret"))
 
 
 class SecurityLoggingTests(TestCase):
