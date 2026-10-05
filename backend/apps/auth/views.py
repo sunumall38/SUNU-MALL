@@ -243,11 +243,12 @@ class ResendVerificationEmailView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        email = serializer.validated_data['email']
+        email = serializer.validated_data.get('email')
+        phone = serializer.validated_data.get('phone')
         
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
+        users = User.objects.filter(email=email) if email else User.objects.filter(phone=phone)
+        user = users.first() if users.count() == 1 else None
+        if user is None:
             # On ne révèle pas si l'email existe ou non pour des raisons de sécurité
             return Response({
                 "message": "Si cet email est associé à un compte, un email de vérification a été envoyé."

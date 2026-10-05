@@ -81,6 +81,42 @@ class AuthTests(TestCase):
         user = User.objects.get(email=data['email'])
         self.assertFalse(user.is_verified)
         self.assertTrue(user.check_password(data['password']))
+        self.assertEqual(user.phone, '+221771234567')
+
+    def test_register_normalizes_local_phone_number(self):
+        data = {
+            'email': 'local-phone@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '77 123 45 67',
+            'role_name': 'client',
+        }
+
+        with patch('apps.auth.views.send_verification_email'):
+            response = self.client.post(self.register_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(User.objects.get(email=data['email']).phone, '+221771234567')
+
+    def test_register_rejects_phone_already_used(self):
+        User.objects.create_user(
+            username='existing@example.com', email='existing@example.com',
+            password='testpassword123', phone='+221771234567',
+        )
+        data = {
+            'email': 'other@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '77 123 45 67',
+            'role_name': 'client',
+        }
+
+        response = self.client.post(self.register_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('phone', response.data)
 
     def test_register_user_missing_fields(self):
         """
@@ -144,6 +180,50 @@ class AuthTests(TestCase):
         self.assertIn('access', response.data)
         self.assertIn('refresh', response.data)
         self.assertEqual(response.data['user']['email'], data['email'])
+
+    def test_login_user_verified_with_local_phone_number(self):
+        user = self.create_user_with_role(is_verified=True)
+        user.phone = '+221771234567'
+        user.save(update_fields=['phone'])
+
+        response = self.client.post(self.login_url, {
+            'phone': '77 123 45 67',
+            'password': 'testpassword123',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertEqual(response.data['user']['phone'], '+221771234567')
+
+    def test_login_phone_wrong_password(self):
+        user = self.create_user_with_role(is_verified=True)
+        user.phone = '+221771234567'
+        user.save(update_fields=['phone'])
+
+        response = self.client.post(self.login_url, {
+            'phone': '+221771234567',
+            'password': 'wrongpassword',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', response.data)
+
+    def test_login_refuses_ambiguous_shared_phone(self):
+        first = self.create_user_with_role(is_verified=True)
+        first.phone = '+221771234567'
+        first.save(update_fields=['phone'])
+        User.objects.create_user(
+            username='duplicate@example.com', email='duplicate@example.com',
+            password='testpassword123', phone='+221771234567', is_verified=True,
+        )
+
+        response = self.client.post(self.login_url, {
+            'phone': '+221771234567',
+            'password': 'testpassword123',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('non_field_errors', response.data)
 
     def test_login_wrong_password(self):
         """

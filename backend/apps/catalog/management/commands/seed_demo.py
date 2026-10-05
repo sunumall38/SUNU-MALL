@@ -178,6 +178,9 @@ class Command(BaseCommand):
                     "phone": phone,
                 },
             )
+            if user.phone != phone:
+                user.phone = phone
+                user.save(update_fields=["phone", "updated_at"])
             UserRole.objects.get_or_create(user=user, role=role)
             return user, created
 
@@ -185,6 +188,7 @@ class Command(BaseCommand):
         for i in range(1, max(2, target_stores // 3) + 1):
             merchant, _ = ensure_user(
                 f"{DEMO_MERCHANT_PREFIX}{i}@sunumall.com", f"Vendeur Démo {i}", merchant_role,
+                phone=f"+2217700000{i:02d}",
             )
             SellerKYC.objects.get_or_create(
                 seller=merchant,
@@ -199,7 +203,10 @@ class Command(BaseCommand):
             )
             merchants.append(merchant)
         for i in range(1, 4):
-            client, _ = ensure_user(f"{DEMO_CLIENT_PREFIX}{i}@sunumall.com", f"Client Démo {i}", client_role)
+            client, _ = ensure_user(
+                f"{DEMO_CLIENT_PREFIX}{i}@sunumall.com", f"Client Démo {i}", client_role,
+                phone=f"+2217800000{i:02d}",
+            )
             clients.append(client)
 
         created_stores = 0

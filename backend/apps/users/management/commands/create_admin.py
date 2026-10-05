@@ -23,6 +23,7 @@ Par défaut :
     username admin@sunumall.com
     password Admin@12345   (à changer après la première connexion)
 """
+
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
@@ -30,20 +31,38 @@ from apps.users.models import Role, UserRole
 
 DEFAULT_EMAIL = "admin@sunumall.com"
 DEFAULT_PASSWORD = "Admin@12345"
+DEFAULT_PHONE = "+221770000000"
 
 
 class Command(BaseCommand):
     help = "Crée ou met à jour un compte administrateur de Sunu Mall."
 
     def add_arguments(self, parser):
-        parser.add_argument("--email", default=DEFAULT_EMAIL, help="Adresse email du compte admin.")
-        parser.add_argument("--username", default=None, help="Nom d'utilisateur (défaut : l'email).")
-        parser.add_argument("--password", default=DEFAULT_PASSWORD, help="Mot de passe (défaut documenté).")
         parser.add_argument(
-            "--first-name", default="Sunu Mall", help="Prénom du compte (défaut : « Sunu Mall »)."
+            "--email", default=DEFAULT_EMAIL, help="Adresse email du compte admin."
         )
         parser.add_argument(
-            "--last-name", default="Administration", help="Nom du compte (défaut : « Administration »)."
+            "--username", default=None, help="Nom d'utilisateur (défaut : l'email)."
+        )
+        parser.add_argument(
+            "--password",
+            default=DEFAULT_PASSWORD,
+            help="Mot de passe (défaut documenté).",
+        )
+        parser.add_argument(
+            "--phone",
+            default=DEFAULT_PHONE,
+            help="Numéro utilisé pour la connexion (défaut : +221770000000).",
+        )
+        parser.add_argument(
+            "--first-name",
+            default="Sunu Mall",
+            help="Prénom du compte (défaut : « Sunu Mall »).",
+        )
+        parser.add_argument(
+            "--last-name",
+            default="Administration",
+            help="Nom du compte (défaut : « Administration »).",
         )
         parser.add_argument(
             "--role",
@@ -66,6 +85,16 @@ class Command(BaseCommand):
         User = get_user_model()
         email = options["email"].lower().strip()
         username = options["username"] or email
+        from apps.users.phone import normalize_senegal_phone
+
+        try:
+            phone = normalize_senegal_phone(options["phone"])
+        except Exception as exc:
+            raise CommandError(str(exc)) from exc
+        if User.objects.filter(phone=phone).exclude(email=email).exists():
+            raise CommandError(
+                "Ce numéro de téléphone est déjà utilisé par un autre compte."
+            )
 
         # Collection des rôles d'administration à garantir (validés).
         if options["roles"]:
@@ -95,6 +124,7 @@ class Command(BaseCommand):
                 "email": email,
                 "first_name": options["first_name"],
                 "last_name": options["last_name"],
+                "phone": phone,
                 "is_active": True,
                 "is_verified": True,
             },
@@ -105,6 +135,9 @@ class Command(BaseCommand):
             # Un compte existant : on le réactive et on le passe vérifié, sans
             # écraser son mot de passe (sauf si fourni explicitement, voir ci-dessous).
             changed = []
+            if user.phone != phone:
+                user.phone = phone
+                changed.append("téléphone mis à jour")
             if not user.is_active:
                 user.is_active = True
                 changed.append("réactivé")
@@ -127,14 +160,12 @@ class Command(BaseCommand):
                 granted.append(str(role))
 
         message = "créé" if created else "mis à jour"
-        self.stdout.write(self.style.SUCCESS(
-            f"Compte admin {message} : {email}"
-        ))
+        self.stdout.write(self.style.SUCCESS(f"Compte admin {message} : {email}"))
         if granted:
-            self.stdout.write(self.style.WARNING(f"Rôle(s) ajouté(s) : {', '.join(granted)}"))
+            self.stdout.write(
+                self.style.WARNING(f"Rôle(s) ajouté(s) : {', '.join(granted)}")
+            )
+        self.stdout.write(f"Rôles : {', '.join(role_names)}")
         self.stdout.write(
-            f"Rôles : {', '.join(role_names)}"
-        )
-        self.stdout.write(
-            f"Connexion : {email} / {options['password'] if options['password'] != DEFAULT_PASSWORD else DEFAULT_PASSWORD}"
+            f"Connexion : {phone} / {options['password'] if options['password'] != DEFAULT_PASSWORD else DEFAULT_PASSWORD}"
         )
