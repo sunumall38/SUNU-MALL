@@ -8,8 +8,8 @@ export interface AuthResponse {
   message?: string;
 }
 
-export function login(email: string, password: string) {
-  return apiPost<AuthResponse>("/auth/login/", { email, password }, { auth: false });
+export function login(phone: string, password: string) {
+  return apiPost<AuthResponse>("/auth/login/", { phone, password }, { auth: false });
 }
 
 export function register(payload: {
@@ -23,8 +23,8 @@ export function register(payload: {
   return apiPost<AuthResponse>("/auth/register/", payload, { auth: false });
 }
 
-export function resendVerification(email: string) {
-  return apiPost<{ message: string }>("/auth/resend-verification/", { email }, { auth: false });
+export function resendVerification(phone: string) {
+  return apiPost<{ message: string }>("/auth/resend-verification/", { phone }, { auth: false });
 }
 
 /** Réponse quand l'email appartient déjà à un client invité : un lien lui est envoyé. */

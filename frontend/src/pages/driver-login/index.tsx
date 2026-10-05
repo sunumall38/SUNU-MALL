@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Lock, Mail, Truck, TriangleAlert } from "lucide-react";
+import { Lock, Phone, Truck, TriangleAlert } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api";
@@ -11,7 +11,7 @@ import * as authApi from "@/api/auth";
 import { useAuthStore } from "@/store/authStore";
 
 const schema = z.object({
-  email: z.string().email("Email invalide"),
+  phone: z.string().min(9, "Numéro de téléphone invalide"),
   password: z.string().min(1, "Mot de passe requis"),
 });
 
@@ -31,7 +31,7 @@ export default function DriverLoginPage() {
   async function onSubmit(values: FormValues) {
     setServerError(null);
     try {
-      const data = await authApi.login(values.email, values.password);
+      const data = await authApi.login(values.phone, values.password);
       if (!data.user.roles.includes("driver")) {
         setServerError("Ce compte n'est pas un compte livreur.");
         return;
@@ -59,8 +59,17 @@ export default function DriverLoginPage() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
-        <Input label="Email" type="email" icon={Mail} {...register("email")} error={errors.email?.message} />
-        <Input label="Mot de passe" type="password" icon={Lock} {...register("password")} error={errors.password?.message} />
+        <Input
+          label="Numéro de téléphone"
+          type="tel"
+          autoComplete="tel"
+          inputMode="tel"
+          placeholder="+221 77 123 45 67"
+          icon={Phone}
+          {...register("phone")}
+          error={errors.phone?.message}
+        />
+        <Input label="Mot de passe" type="password" autoComplete="current-password" icon={Lock} {...register("password")} error={errors.password?.message} />
 
         {serverError && (
           <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-red-50 px-3.5 py-2.5 text-sm text-danger">
