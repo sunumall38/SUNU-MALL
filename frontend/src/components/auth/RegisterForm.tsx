@@ -5,7 +5,7 @@ import { z } from "zod";
 import { CheckCircle2, Lock, Mail, MessageSquareText, Phone, ShieldCheck, TriangleAlert, User } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
-import { ApiError } from "@/lib/api";
+import { ApiError, apiErrorMessage } from "@/lib/api";
 import * as authApi from "@/api/auth";
 
 const schema = z.object({
@@ -47,9 +47,12 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
       }
     } catch (err) {
       if (err instanceof ApiError) {
-        const data = err.data as Record<string, unknown>;
-        const firstError = Object.values(data ?? {})[0];
-        setServerError(Array.isArray(firstError) ? String(firstError[0]) : "Inscription impossible.");
+        const message = apiErrorMessage(err, "Inscription impossible.");
+        setServerError(
+          err.status === 503
+            ? `${message} Vous pouvez choisir l’activation par e-mail ou réessayer plus tard.`
+            : message,
+        );
       } else {
         setServerError("Impossible de contacter le serveur.");
       }
