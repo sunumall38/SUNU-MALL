@@ -85,6 +85,24 @@ class AuthTests(TestCase):
         self.assertTrue(user.check_password(data['password']))
         self.assertEqual(user.phone, '+221771234567')
 
+    def test_register_deletes_account_when_email_provider_rejects_message(self):
+        data = {
+            'email': 'provider-down@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Test',
+            'last_name': 'User',
+            'phone': '+221771234568',
+            'role_name': 'merchant',
+            'verification_channel': 'email',
+        }
+
+        with patch('apps.auth.views.send_verification_email', return_value=False):
+            response = self.client.post(self.register_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.data['detail'].code, 'email_verification_unavailable')
+        self.assertFalse(User.objects.filter(email=data['email']).exists())
+
     def test_register_normalizes_local_phone_number(self):
         data = {
             'email': 'local-phone@example.com',
