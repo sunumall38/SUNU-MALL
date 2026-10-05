@@ -318,7 +318,7 @@ class KYCSubmitTests(TestCase):
 
 @KYC_FS
 class KYCGatingTests(TestCase):
-    """Section 21 : sans KYC vérifié, pas de boutique ouverte, pas de course acceptée."""
+    """Sans KYC : boutique soumise possible, mais vente et courses restent bloquées."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -345,10 +345,11 @@ class KYCGatingTests(TestCase):
             status=DriverKYC.Status.VERIFIED, submitted_at=None,
         )
 
-    def test_merchant_cannot_create_store_without_verified_kyc(self):
+    def test_merchant_can_submit_store_before_verified_kyc(self):
         self.client.force_authenticate(self.merchant)
         response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], Store.Status.INACTIVE)
 
     def test_merchant_can_create_store_with_verified_kyc(self):
         self._verify_seller()
@@ -597,6 +598,12 @@ class KYCPublishGatingTests(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         self.product.refresh_from_db()
         self.assertEqual(self.product.status, Product.Status.ACTIVE)
+
+    def test_seller_without_kyc_cannot_publish_after_store_approval(self):
+        response = self._publish()
+        self.assertEqual(response.status_code, 403)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.status, Product.Status.DRAFT)
 
     def test_suspended_seller_cannot_publish_product(self):
         self._kyc(SellerKYC.Status.SUSPENDED)
