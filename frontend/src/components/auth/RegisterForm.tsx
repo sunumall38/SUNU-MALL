@@ -50,7 +50,9 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
         const message = apiErrorMessage(err, "Inscription impossible.");
         setServerError(
           err.status === 503
-            ? `${message} Vous pouvez choisir l’activation par e-mail ou réessayer plus tard.`
+            ? values.verification_channel === "sms"
+              ? `${message} Vous pouvez choisir l’activation par e-mail ou réessayer plus tard.`
+              : `${message} Aucun compte incomplet n’a été conservé.`
             : message,
         );
       } else {

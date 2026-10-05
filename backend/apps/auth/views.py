@@ -7,7 +7,7 @@ from django.conf import settings
 from django.core import signing
 from django.utils import timezone
 from rest_framework import generics, permissions, status
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, AuthenticationFailed, PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -37,6 +37,15 @@ from apps.users.models import PhoneOTP, Token, User
 logger = logging.getLogger(__name__)
 
 PHONE_REGISTRATION_SALT = "sunu-mall.phone-registration"
+
+
+class EmailVerificationUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "L'envoi de l'e-mail d'activation est temporairement indisponible. "
+        "Veuillez réessayer plus tard."
+    )
+    default_code = "email_verification_unavailable"
 
 
 class AuthAnonRateThrottle(AnonRateThrottle):
@@ -135,7 +144,12 @@ class RegisterView(generics.CreateAPIView):
                 {"user_id": str(user.pk)}, salt=PHONE_REGISTRATION_SALT, compress=True
             )
         else:
-            send_verification_email(user)
+            if not send_verification_email(user):
+                # Même garantie que pour le parcours SMS : ne pas conserver un
+                # compte impossible à activer qui bloquerait la prochaine
+                # tentative avec le même email ou numéro.
+                user.delete()
+                raise EmailVerificationUnavailable()
 
         roles = [ur.role.name for ur in user.user_roles.select_related('role')]
         return Response({
