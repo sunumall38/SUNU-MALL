@@ -36,6 +36,22 @@ if EMAIL_PROVIDER == "resend" and not EMAIL_FROM_CONFIGURED:
     raise ImproperlyConfigured(
         "DEFAULT_FROM_EMAIL doit utiliser une adresse du domaine validé dans Resend."
     )
+if EMAIL_PROVIDER == "gmail_api":
+    missing_gmail_settings = [
+        name
+        for name, value in (
+            ("GMAIL_CLIENT_ID", GMAIL_CLIENT_ID),
+            ("GMAIL_CLIENT_SECRET", GMAIL_CLIENT_SECRET),
+            ("GMAIL_REFRESH_TOKEN", GMAIL_REFRESH_TOKEN),
+            ("DEFAULT_FROM_EMAIL", EMAIL_FROM_CONFIGURED),
+        )
+        if not value
+    ]
+    if missing_gmail_settings:
+        raise ImproperlyConfigured(
+            "Variables obligatoires pour EMAIL_PROVIDER=gmail_api : "
+            + ", ".join(missing_gmail_settings)
+        )
 if not ADMIN_NOTIFICATION_EMAIL:
     raise ImproperlyConfigured(
         "ADMIN_NOTIFICATION_EMAIL est obligatoire en production pour recevoir "
@@ -44,7 +60,7 @@ if not ADMIN_NOTIFICATION_EMAIL:
 if EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend":
     raise ImproperlyConfigured(
         "Un service email réel est obligatoire en production — configurez "
-        "EMAIL_PROVIDER=resend (recommandé sur Railway) ou EMAIL_PROVIDER=smtp."
+        "EMAIL_PROVIDER=resend, EMAIL_PROVIDER=gmail_api ou EMAIL_PROVIDER=smtp."
     )
 
 if PHONE_OTP_PROVIDER not in {"local", "twilio"}:

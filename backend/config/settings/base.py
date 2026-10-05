@@ -369,6 +369,8 @@ RESEND_API_KEY = config("RESEND_API_KEY", default="")
 if EMAIL_PROVIDER == "resend":
     EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
     ANYMAIL = {"RESEND_API_KEY": RESEND_API_KEY}
+elif EMAIL_PROVIDER == "gmail_api":
+    EMAIL_BACKEND = "config.email_backends.GmailApiEmailBackend"
 elif EMAIL_PROVIDER == "smtp":
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 else:
@@ -385,6 +387,17 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", default=15, cast=int)
+GMAIL_CLIENT_ID = config("GMAIL_CLIENT_ID", default="")
+GMAIL_CLIENT_SECRET = config("GMAIL_CLIENT_SECRET", default="")
+GMAIL_REFRESH_TOKEN = config("GMAIL_REFRESH_TOKEN", default="")
+GMAIL_TOKEN_URL = config(
+    "GMAIL_TOKEN_URL",
+    default="https://oauth2.googleapis.com/token",
+)
+GMAIL_SEND_URL = config(
+    "GMAIL_SEND_URL",
+    default="https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+)
 EMAIL_FROM_CONFIGURED = config("DEFAULT_FROM_EMAIL", default="")
 DEFAULT_FROM_EMAIL = EMAIL_FROM_CONFIGURED or "SUNU MALL <noreply@sunumall.com>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
