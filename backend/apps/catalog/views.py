@@ -421,7 +421,12 @@ class StoreViewSet(viewsets.ModelViewSet):
                 "Vous avez déjà une boutique sur Sunu Mall : 1 vendeur = 1 boutique. "
                 "Modifiez votre boutique existante ou supprimez-la pour en créer une nouvelle."
             )
-        store = serializer.save(owner=self.request.user)
+        extra = {}
+        if not self.request.user.is_admin():
+            # Une boutique créée par un vendeur attend toujours la validation
+            # de l'administration, quel que soit le `status` envoyé.
+            extra["status"] = Store.Status.INACTIVE
+        store = serializer.save(owner=self.request.user, **extra)
         notify_admin_store_created(store)
 
     def perform_update(self, serializer):
@@ -429,6 +434,10 @@ class StoreViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user.is_admin() and store.owner_id != user.id:
             raise PermissionDenied("Vous ne pouvez modifier que votre propre boutique.")
+        if not user.is_admin():
+            # Le statut ne change que par l'administration (approve / reject /
+            # suspension) : un vendeur ne peut ni publier ni réactiver seul.
+            serializer.validated_data.pop("status", None)
         serializer.save()
 
     def perform_destroy(self, instance):

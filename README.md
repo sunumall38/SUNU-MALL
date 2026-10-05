@@ -74,11 +74,12 @@ docker compose -f infra/docker-compose.dev.yml logs -f backend
 ```bash
 # Compte administrateur de la plateforme (rôle admin, email vérifié)
 docker compose -f infra/docker-compose.dev.yml exec backend python manage.py create_admin
-#   → admin@sunumall.com / Admin@12345  (—super-admin pour accorder aussi le rôle super_admin)
+#   → +221770000000 / Admin@12345  (—super-admin pour accorder aussi le rôle super_admin)
 
 # Marketplace de démo : boutiques, produits, avis (idempotent)
 docker compose -f infra/docker-compose.dev.yml exec backend python manage.py seed_demo
-#   → demo.vendeurN@sunumall.com / Demo@12345  et  demo.clientN@sunumall.com / Demo@12345
+#   → vendeur N : +2217700000NN / Demo@12345
+#   → client N  : +2217800000NN / Demo@12345
 ```
 
 > **Attention** : `admin@sunumall.com` est aussi l'identifiant par défaut de la

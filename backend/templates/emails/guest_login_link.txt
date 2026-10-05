@@ -1,0 +1,14 @@
+Bonjour {{ user.first_name }} !
+
+Vous avez déjà commandé sur SUNU MALL avec cette adresse email.
+
+Pour continuer votre commande, cliquez sur le lien ci-dessous :
+{{ login_url }}
+
+Ce lien est valable {{ ttl_minutes }} minutes et ne peut servir qu'une seule fois.
+
+Si vous n'êtes pas à l'origine de cette demande, ignorez cet email :
+personne ne peut accéder à votre compte sans ce lien.
+
+Cordialement,
+L'équipe SUNU MALL

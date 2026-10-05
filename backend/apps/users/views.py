@@ -4,13 +4,14 @@ from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from .models import User, Role, Permission, UserRole, RolePermission
 from .serializers import (
     UserSerializer, RoleSerializer, PermissionSerializer,
     UserRoleSerializer, RolePermissionSerializer
 )
-from .permissions import IsAdmin
+from .permissions import IsAdmin, IsSuperAdmin
 from apps.catalog.models import Store
 
 
@@ -56,12 +57,42 @@ class UserViewSet(viewsets.ModelViewSet):
             return queryset
         return User.objects.filter(pk=user.pk)
 
+    # Permission fine exigée pour chaque écriture. Lire la liste des
+    # utilisateurs reste ouvert à tous les rôles d'administration, mais créer,
+    # modifier ou supprimer un compte demande la permission correspondante
+    # (aujourd'hui portée par le seul super admin).
+    WRITE_PERMISSIONS = {
+        'create': 'create_user',
+        'update': 'edit_user',
+        'partial_update': 'edit_user',
+        'destroy': 'delete_user',
+    }
+
     def get_permissions(self):
         if self.action in ['list', 'retrieve', 'create', 'update', 'partial_update', 'destroy']:
             permission_classes = [IsAdmin]
         else:
             permission_classes = [permissions.IsAuthenticated]
         return [permission() for permission in permission_classes]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        required = self.WRITE_PERMISSIONS.get(self.action)
+        if required and not request.user.has_permission(required):
+            raise PermissionDenied("Vous n'avez pas la permission de modifier les comptes utilisateurs.")
+
+    def _ensure_can_touch(self, target):
+        """Un compte d'administration n'est modifiable que par un super admin."""
+        if target.is_admin() and not self.request.user.is_super_admin():
+            raise PermissionDenied("Seul un super administrateur peut modifier un compte d'administration.")
+
+    def perform_update(self, serializer):
+        self._ensure_can_touch(serializer.instance)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        self._ensure_can_touch(instance)
+        instance.delete()
 
     @action(detail=False, methods=['get'], url_path='admin/dashboard/stats', permission_classes=[IsAdmin])
     def admin_dashboard_stats(self, request):
@@ -112,19 +143,29 @@ class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAdmin]
 
 
-class UserRoleViewSet(viewsets.ModelViewSet):
+class SuperAdminWriteMixin:
+    """Lecture pour tout rôle d'administration, écriture pour le super admin."""
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [IsAdmin()]
+        return [IsSuperAdmin()]
+
+
+class UserRoleViewSet(SuperAdminWriteMixin, viewsets.ModelViewSet):
     """
-    Gestion des rôles des utilisateurs. Seul l'admin peut accéder.
+    Attribution des rôles aux utilisateurs. Tout admin peut consulter ; seul le
+    super admin peut attribuer ou retirer un rôle (sinon un admin spécialisé
+    pourrait se nommer lui-même super admin).
     """
     queryset = UserRole.objects.all()
     serializer_class = UserRoleSerializer
-    permission_classes = [IsAdmin]
 
 
-class RolePermissionViewSet(viewsets.ModelViewSet):
+class RolePermissionViewSet(SuperAdminWriteMixin, viewsets.ModelViewSet):
     """
-    Gestion des permissions des rôles. Seul l'admin peut accéder.
+    Permissions portées par chaque rôle. Tout admin peut consulter ; seul le
+    super admin peut en ajouter ou en retirer.
     """
     queryset = RolePermission.objects.all()
     serializer_class = RolePermissionSerializer
-    permission_classes = [IsAdmin]

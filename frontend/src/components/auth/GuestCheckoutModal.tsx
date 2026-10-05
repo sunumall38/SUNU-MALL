@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Mail, Phone, TriangleAlert, User } from "lucide-react";
+import { Mail, MailCheck, Phone, TriangleAlert, User } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
@@ -24,6 +24,7 @@ export function GuestCheckoutModal() {
   const { isOpen, pendingAction, close } = useGuestCheckoutStore();
   const loginSuccess = useAuthStore((s) => s.loginSuccess);
   const [conflict, setConflict] = useState(false);
+  const [linkSentMessage, setLinkSentMessage] = useState<string | null>(null);
 
   const {
     register,
@@ -35,6 +36,7 @@ export function GuestCheckoutModal() {
   function handleClose() {
     reset();
     setConflict(false);
+    setLinkSentMessage(null);
     close();
   }
 
@@ -42,6 +44,11 @@ export function GuestCheckoutModal() {
     setConflict(false);
     try {
       const data = await authApi.guestCheckout(values);
+      if ("login_link_sent" in data) {
+        // Client invité déjà connu : il continue via le lien reçu par email.
+        setLinkSentMessage(data.message);
+        return;
+      }
       loginSuccess(data);
       await pendingAction?.();
       reset();
@@ -51,6 +58,25 @@ export function GuestCheckoutModal() {
         setConflict(true);
       }
     }
+  }
+
+  if (linkSentMessage) {
+    return (
+      <Modal open={isOpen} onClose={handleClose} title="Vérifiez votre boîte mail" size="sm">
+        <div className="flex flex-col items-center gap-3 py-2 text-center">
+          <span className="grid h-14 w-14 place-items-center rounded-full bg-green-100">
+            <MailCheck className="h-7 w-7 text-success" />
+          </span>
+          <p className="text-sm text-muted-foreground">{linkSentMessage}</p>
+          <p className="text-xs text-muted-foreground">
+            Le lien est valable quelques minutes. Votre panier est conservé.
+          </p>
+          <Button onClick={handleClose} className="mt-2 w-full">
+            J'ai compris
+          </Button>
+        </div>
+      </Modal>
+    );
   }
 
   return (

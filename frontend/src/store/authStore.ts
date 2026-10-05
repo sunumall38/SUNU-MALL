@@ -1,11 +1,7 @@
 import { create } from "zustand";
 import type { AuthUser, Role } from "@/types";
 
-// La session n'est plus persistée (localStorage) : la plateforme s'ouvre
-// toujours « Se connecter ». On nettoie l'ancienne clé si elle existait.
-if (typeof localStorage !== "undefined") {
-  localStorage.removeItem("sunu-mall-auth");
-}
+const SESSION_KEY = "sunu-mall-session";
 
 export type { AuthUser, Role };
 
@@ -28,24 +24,70 @@ interface AuthState {
   setHasHydrated: (value: boolean) => void;
 }
 
+interface StoredSession {
+  user: AuthUser;
+  accessToken: string | null;
+  refreshToken: string | null;
+}
+
+function readSession(): StoredSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.sessionStorage.getItem(SESSION_KEY);
+    return value ? (JSON.parse(value) as StoredSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(session: StoredSession | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (session) {
+      window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    } else {
+      window.sessionStorage.removeItem(SESSION_KEY);
+    }
+  } catch {
+    // Le mode privé ou une politique navigateur peut bloquer le stockage :
+    // la connexion reste alors valable jusqu'au prochain rechargement.
+  }
+}
+
+const initialSession = readSession();
+
 export const useAuthStore = create<AuthState>()((set, get) => ({
-  user: null,
-  accessToken: null,
-  refreshToken: null,
+  user: initialSession?.user ?? null,
+  accessToken: initialSession?.accessToken ?? null,
+  refreshToken: initialSession?.refreshToken ?? null,
   hasHydrated: true,
 
-  loginSuccess: ({ user, access, refresh }) =>
-    set({ user, accessToken: access, refreshToken: refresh }),
+  loginSuccess: ({ user, access, refresh }) => {
+    writeSession({ user, accessToken: access, refreshToken: refresh });
+    set({ user, accessToken: access, refreshToken: refresh });
+  },
 
   setTokens: (access, refresh) =>
-    set((state) => ({
-      accessToken: access,
-      refreshToken: refresh ?? state.refreshToken,
-    })),
+    set((state) => {
+      const refreshToken = refresh ?? state.refreshToken;
+      if (state.user) {
+        writeSession({ user: state.user, accessToken: access, refreshToken });
+      }
+      return { accessToken: access, refreshToken };
+    }),
 
-  updateUser: (patch) => set((state) => (state.user ? { user: { ...state.user, ...patch } } : {})),
+  updateUser: (patch) =>
+    set((state) => {
+      if (!state.user) return {};
+      const user = { ...state.user, ...patch };
+      writeSession({ user, accessToken: state.accessToken, refreshToken: state.refreshToken });
+      return { user };
+    }),
 
-  logout: () => set({ user: null, accessToken: null, refreshToken: null }),
+  logout: () => {
+    writeSession(null);
+    set({ user: null, accessToken: null, refreshToken: null });
+  },
 
   hasRole: (role) => !!get().user?.roles.includes(role),
 

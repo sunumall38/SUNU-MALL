@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -37,6 +37,7 @@ from apps.catalog.models import Product, ProductVariant, Store
 from apps.payments.models import Payment, Refund
 from apps.shopping.models import CartItem
 from apps.users.models import Role, UserRole
+from apps.users.phone import normalize_senegal_phone
 from apps.kyc.utils import driver_kyc_verified
 
 
@@ -60,6 +61,17 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+    # Une commande ne se modifie ni ne se supprime par l'API générique : elle
+    # naît de `checkout`, évolue par les actions dédiées (`cancel`, statuts de
+    # livraison, paiement) et reste comme pièce comptable. PUT/PATCH/DELETE
+    # permettaient au vendeur de changer `delivery_fee` (commission annulée)
+    # et à n'importe quel acteur de la commande de la supprimer.
+    http_method_names = ["get", "post", "head", "options"]
+
+    def create(self, request, *args, **kwargs):
+        raise MethodNotAllowed(
+            "POST", detail="Passez par l'action « checkout » pour créer une commande."
+        )
 
     def get_queryset(self):
         user = self.request.user
@@ -464,7 +476,11 @@ class DriverViewSet(viewsets.ModelViewSet):
         email = (request.data.get("email") or "").strip().lower()
         first_name = (request.data.get("first_name") or "").strip()
         last_name = (request.data.get("last_name") or "").strip()
-        phone = (request.data.get("phone") or "").strip()
+        raw_phone = (request.data.get("phone") or "").strip()
+        try:
+            phone = normalize_senegal_phone(raw_phone) if raw_phone else ""
+        except DjangoValidationError as exc:
+            raise ValidationError({"phone": exc.messages})
         vehicle_type = (request.data.get("vehicle_type") or "").strip()
 
         missing = [f for f, v in {
@@ -475,6 +491,8 @@ class DriverViewSet(viewsets.ModelViewSet):
 
         if User.objects.filter(email=email).exists():
             raise ValidationError("Un compte existe déjà avec cet email.")
+        if phone and User.objects.filter(phone=phone).exists():
+            raise ValidationError({"phone": "Ce numéro de téléphone est déjà utilisé."})
 
         temporary_password = get_random_string(10)
         user = User.objects.create_user(

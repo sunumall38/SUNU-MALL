@@ -232,6 +232,13 @@ PHONE_OTP_MAX_ATTEMPTS = config("PHONE_OTP_MAX_ATTEMPTS", default=5, cast=int)
 # uniquement par SMS sur le téléphone de l'utilisateur.
 PHONE_OTP_REVEAL_CODE = config("PHONE_OTP_REVEAL_CODE", default=False, cast=bool)
 
+# --- Lien de connexion des clients invités ---
+# Un client qui a déjà commandé sans compte reçoit par email un lien à usage
+# unique pour reprendre sa session : c'est la preuve qu'il contrôle l'adresse.
+GUEST_LOGIN_LINK_TTL_MINUTES = config("GUEST_LOGIN_LINK_TTL_MINUTES", default=15, cast=int)
+# Délai minimal entre deux envois au même compte (anti-inondation de boîte mail).
+GUEST_LOGIN_LINK_COOLDOWN_SECONDS = config("GUEST_LOGIN_LINK_COOLDOWN_SECONDS", default=120, cast=int)
+
 # --- Affectation des courses ---
 # Un livreur ne reçoit une commande que s'il est à moins de ce rayon (km) de
 # la boutique : il doit être assez proche pour venir récupérer le colis.
@@ -256,6 +263,10 @@ REST_FRAMEWORK = {
         # throttle_scope = "ai" (apps/ia/views.py) — aucune autre vue du
         # projet n'a de scope "ai", donc ce throttle ne les affecte pas.
         "ai": "20/hour",
+        # Vérification du téléphone, par compte : limite l'émission de codes
+        # (brute force par renouvellement, SMS facturés) et les essais.
+        "phone_otp_request": "5/hour",
+        "phone_otp_verify": "20/hour",
     },
 }
 
@@ -311,6 +322,9 @@ CORS_ALLOWED_ORIGINS = config(
     default="http://localhost:3000,http://localhost:3004,http://localhost:3010,http://localhost:3011,http://localhost:8081",
     cast=Csv(),
 )
+# Le frontend (autre origine) doit pouvoir lire le nom du fichier des exports
+# téléchargés (rapports admin).
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 AUTH_USER_MODEL = "users.User"
 

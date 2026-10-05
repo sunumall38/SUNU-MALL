@@ -14,6 +14,7 @@ import LoginPage from "@/pages/login";
 import RegisterClientPage from "@/pages/register-client";
 import RegisterMerchantPage from "@/pages/register-merchant";
 import VerifyEmailPage from "@/pages/verify-email";
+import GuestLoginPage from "@/pages/guest-login";
 import DriverLoginPage from "@/pages/driver-login";
 
 import HomePage from "@/pages/home";
@@ -119,6 +120,7 @@ export const router = createBrowserRouter([
       { path: "/register-client", element: <RegisterClientPage /> },
       { path: "/register-merchant", element: <RegisterMerchantPage /> },
       { path: "/verify-email", element: <VerifyEmailPage /> },
+      { path: "/guest-login", element: <GuestLoginPage /> },
       { path: "/driver-login", element: <DriverLoginPage /> },
     ],
   },

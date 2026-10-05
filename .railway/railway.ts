@@ -25,6 +25,10 @@ export default defineRailway(() => {
     // Railway interroge le conteneur en HTTP pour ses healthchecks. Le TLS
     // public reste terminé par son proxy et signalé via X-Forwarded-Proto.
     SECURE_SSL_REDIRECT: "False",
+    // Paiements simulés tant que la plateforme est en démonstration : une
+    // commande peut alors être validée sans paiement réel. À passer à "False"
+    // AVANT d'installer les clés Wave / Orange Money — config.settings.prod
+    // refuse de démarrer si le sandbox est actif avec de vraies clés.
     PAYMENT_SANDBOX: "True",
     POSTGRES_DB: database.env.PGDATABASE,
     POSTGRES_USER: database.env.PGUSER,

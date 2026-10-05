@@ -64,14 +64,60 @@ class ReportsTestCase(TestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get("/api/reports/global/?fmt=csv")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.data["url"].endswith(".csv"))
-        self.assertTrue(resp.data["filename"].endswith(".csv"))
-        self.assertGreater(resp.data["size"], 0)
+        self.assertTrue(resp["Content-Type"].startswith("text/csv"))
+        self.assertIn("attachment;", resp["Content-Disposition"])
+        self.assertTrue(resp["Content-Disposition"].endswith('.csv"'))
+        self.assertEqual(resp["Cache-Control"], "no-store")
+        self.assertIn("SUNU MALL", resp.content.decode("utf-8-sig"))
 
     def test_finance_pdf_report(self):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.get("/api/reports/finance/?fmt=pdf")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.data["url"].endswith(".pdf"))
-        self.assertTrue(resp.data["filename"].endswith(".pdf"))
-        self.assertGreater(resp.data["size"], 0)
+        self.assertEqual(resp["Content-Type"], "application/pdf")
+        self.assertTrue(resp["Content-Disposition"].endswith('.pdf"'))
+        self.assertTrue(resp.content.startswith(b"%PDF"))
+
+    def test_report_is_not_written_to_media_storage(self):
+        """Le rapport part dans la réponse, jamais dans le bucket média."""
+        self.client.force_authenticate(user=self.admin)
+        self.client.get("/api/reports/finance/?fmt=csv")
+        self.assertFalse((Path(_TMP_STORAGE["location"]) / "reports").exists())
+
+    def test_admin_without_export_permission_is_refused(self):
+        """Un admin spécialisé sans `reports.export` (ex. KYC) n'exporte rien."""
+        Role.objects.get_or_create(name=Role.RoleName.ADMIN_KYC)
+        kyc_admin = self.create_user("kyc@example.com", Role.RoleName.ADMIN_KYC)
+        self.client.force_authenticate(user=kyc_admin)
+        resp = self.client.get("/api/reports/finance/?fmt=csv")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_export_is_recorded_in_admin_audit_log(self):
+        from apps.security.models import AdminAuditLog
+
+        self.client.force_authenticate(user=self.admin)
+        self.client.get("/api/reports/kyc/?fmt=csv")
+        self.assertTrue(AdminAuditLog.objects.filter(object_type="report", object_id="kyc").exists())
+
+
+class CsvFormulaInjectionTests(TestCase):
+    def test_user_text_starting_like_a_formula_is_neutralised(self):
+        from .generators import render_csv
+
+        report = {"title": "Test", "sections": [{
+            "heading": "Boutiques",
+            "kpis": [("Total", 2)],
+            "table": {"columns": ["Nom", "Solde"], "rows": [
+                ['=HYPERLINK("http://evil.example","Clique")', -1500],
+                ["@SUM(A1:A9)", "-2 500,50"],
+                ["Boutique normale", "+221 77 000 00 00"],
+            ]},
+        }]}
+        text = render_csv(report).decode("utf-8-sig")
+        self.assertIn("'=HYPERLINK", text)
+        self.assertIn("'@SUM", text)
+        self.assertIn("'+221 77", text)
+        # Les nombres négatifs restent des nombres.
+        self.assertIn(",-1500", text)
+        self.assertIn("-2 500,50", text)
+        self.assertNotIn("'-2 500", text)
