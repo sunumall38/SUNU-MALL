@@ -16,7 +16,7 @@ from .serializers import (
 from apps.users.permissions import IsAdmin, IsStoreOwnerOrAdmin
 from apps.monetization.models import Notification, Subscription, SubscriptionPlan, SponsoredProduct
 from apps.kyc.models import SellerKYC
-from apps.kyc.utils import seller_account_active, seller_kyc_verified
+from apps.kyc.utils import seller_account_active
 from apps.monetization import services as monetization_services
 from apps.monetization.services import PRODUCT_LIMIT_EXCEEDED_MESSAGE
 from .notifications import notify_admin_store_created
@@ -402,13 +402,9 @@ class StoreViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # Gating KYC (spec §21) : un vendeur ne peut ouvrir de boutique que si
-        # son identité (SellerKYC) a été vérifiée par l'administration.
-        if not seller_kyc_verified(self.request.user):
-            raise PermissionDenied(
-                "Votre identité (KYC) doit être vérifiée par un administrateur "
-                "avant de pouvoir créer une boutique."
-            )
+        # Le dossier boutique est désormais examiné AVANT le KYC vendeur.
+        # La publication de produits et les opérations financières restent
+        # protégées par seller_account_active / seller_kyc_verified.
         # Règle « 1 vendeur = 1 boutique » (spec §1) : appliquée côté backend,
         # jamais dans le frontend. Un commerçant ne peut posséder qu'une seule
         # boutique, quel que soit son statut (active, en attente, suspendue) —
@@ -503,8 +499,9 @@ class StoreViewSet(viewsets.ModelViewSet):
         subject = f"Boutique '{store.name}' approuvée"
         message = (
             f"Bonjour {store.owner.first_name},\n\n"
-            f"Votre boutique '{store.name}' a été approuvée et est maintenant active sur SUNU MALL.\n\n"
-            "Merci pour votre patience."
+            f"Votre boutique '{store.name}' a été approuvée par SUNU MALL.\n\n"
+            "Dernière étape : connectez-vous à votre espace vendeur et envoyez "
+            "votre pièce d'identité. La vente sera activée après validation de votre KYC."
         )
         self._notify_owner(store, subject, message)
         serializer = self.get_serializer(store)

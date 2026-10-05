@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, Heart, LayoutDashboard, LogOut, Menu, Package, Search, ShieldCheck, ShoppingCart, User, X } from "lucide-react";
+import { Bell, ChevronDown, Heart, LayoutDashboard, LogOut, Menu, Package, Search, ShoppingCart, User, X } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { CategoryMenu } from "@/components/marketplace/CategoryMenu";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { useAuthStore } from "@/store/authStore";
-import { useMerchantKycStore } from "@/store/merchantKycStore";
 import { useCartStore } from "@/store/cartStore";
 import { useWishlistStore } from "@/store/wishlistStore";
 import { roleHomePath } from "@/lib/roles";
@@ -36,7 +35,6 @@ export function MarketHeader() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const merchantKyc = useMerchantKycStore();
   const cartCount = useCartStore((s) => s.cartCount);
   const fetchCart = useCartStore((s) => s.fetchCart);
   const favCount = useWishlistStore((s) => s.wishlistCount);
@@ -44,18 +42,6 @@ export function MarketHeader() {
   const [query, setQuery] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const isMerchant = !!user?.roles.includes("merchant");
-  const hideConnectedAccount = isMerchant && merchantKyc.checked && merchantKyc.status !== "VERIFIED";
-
-  useEffect(() => {
-    if (isMerchant) {
-      merchantKyc.checkOnce();
-    } else {
-      merchantKyc.reset();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, isMerchant]);
 
   useEffect(() => {
     fetchCart();
@@ -181,15 +167,7 @@ export function MarketHeader() {
             <span className="hidden text-[10px] text-gray-400 sm:block">Panier</span>
           </Link>
 
-          {hideConnectedAccount ? (
-            <Link
-              to="/merchant"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100"
-            >
-              <ShieldCheck className="h-4 w-4" />
-              <span className="hidden sm:block">Compte en attente de validation</span>
-            </Link>
-          ) : user ? (
+          {user ? (
             <div className="relative">
               <button
                 onClick={() => setAccountOpen((v) => !v)}
@@ -272,15 +250,7 @@ export function MarketHeader() {
               </button>
             </div>
 
-            {hideConnectedAccount ? (
-              <Link
-                to="/merchant"
-                onClick={() => setMobileMenuOpen(false)}
-                className="mb-4 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800"
-              >
-                <ShieldCheck className="h-4 w-4" /> Compte en attente de validation
-              </Link>
-            ) : user ? (
+            {user ? (
               <div className="mb-4 rounded-lg border border-gray-100 p-3">
                 <p className="truncate text-sm font-semibold text-navy">
                   {user.first_name} {user.last_name}
@@ -336,7 +306,7 @@ export function MarketHeader() {
                   <Bell className="h-4 w-4" /> Notifications
                 </Link>
               )}
-              {!hideConnectedAccount && user && (
+              {user && (
                 <Link
                   to={user.roles.includes("client") ? "/orders" : roleHomePath(user.roles)}
                   onClick={() => setMobileMenuOpen(false)}
