@@ -17,12 +17,14 @@ from .views import (
     RequestPhoneOTPView,
     VerifyPhoneOTPView,
     LogoutView,
+    VerifyRegistrationPhoneView,
 )
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='auth_register'),
     path('login/', LoginView.as_view(), name='auth_login'),
     path('verify-email/', VerifyEmailView.as_view(), name='auth_verify_email'),
+    path('verify-registration-phone/', VerifyRegistrationPhoneView.as_view(), name='auth_verify_registration_phone'),
     path('resend-verification/', ResendVerificationEmailView.as_view(), name='auth_resend_verification'),
     path('guest-checkout/', GuestCheckoutView.as_view(), name='auth_guest_checkout'),
     path('guest-login/', GuestLoginView.as_view(), name='auth_guest_login'),

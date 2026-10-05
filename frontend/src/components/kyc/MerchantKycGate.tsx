@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Home, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Circle, Home, ShieldCheck } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as kycApi from "@/api/kyc";
 import { ApiError } from "@/lib/api";
@@ -54,18 +54,36 @@ export function MerchantKycGate({ nav, title }: { nav: DashboardNavItem[]; title
           <Logo />
           <span className="inline-flex items-center gap-2 rounded-full bg-orange/10 px-3 py-1 text-xs font-semibold text-orange-dark">
             <ShieldCheck className="h-4 w-4" />
-            Compte en attente de validation
+            Étape 2 sur 3 — identité à vérifier
           </span>
         </header>
         <main className="mx-auto w-full max-w-2xl px-4 py-10">
           <div className="mb-6 text-center">
             <h1 className="font-display text-2xl font-extrabold text-ink">Espace vendeur</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Envoyez votre pièce d'identité ci-dessous pour activer votre boutique. Votre espace sera
-              utilisable dès que Sunu Mall aura vérifié votre identité (délai : ≤ 24 h).
+              Votre compte est activé. Envoyez maintenant votre pièce d'identité pour que l'administration
+              puisse vérifier votre dossier (délai indicatif : ≤ 24 h).
             </p>
           </div>
+          <ol className="mb-5 grid gap-2 rounded-2xl border border-border bg-white p-4 text-sm sm:grid-cols-3">
+            <li className="flex items-start gap-2 text-success">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong className="block">1. Compte activé</strong><span className="text-xs text-muted-foreground">Téléphone ou e-mail vérifié</span></span>
+            </li>
+            <li className="flex items-start gap-2 text-orange-dark">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong className="block">2. Identité</strong><span className="text-xs text-muted-foreground">Documents à valider</span></span>
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground">
+              <Circle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong className="block text-ink">3. Boutique</strong><span className="text-xs">Création puis validation admin</span></span>
+            </li>
+          </ol>
           <KycStatusCard kind="seller" />
+          <p className="mt-3 rounded-xl border border-orange/20 bg-orange/5 px-4 py-3 text-xs text-muted-foreground">
+            À cette étape, aucune boutique n'apparaît encore dans l'administration. Après l'approbation de votre
+            identité, vous pourrez créer votre boutique ; elle apparaîtra alors dans « Boutiques » pour validation.
+          </p>
           <div className="mt-6 flex flex-col items-center gap-3 text-center">
             <Link
               to="/"

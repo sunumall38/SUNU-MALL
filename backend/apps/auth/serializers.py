@@ -18,6 +18,12 @@ class RegisterSerializer(serializers.ModelSerializer):
     """
 
     password = serializers.CharField(write_only=True, min_length=8)
+    verification_channel = serializers.ChoiceField(
+        choices=(("sms", "SMS"), ("email", "Email")),
+        write_only=True,
+        required=False,
+        default="email",
+    )
     role_name = serializers.ChoiceField(
         choices=[(r, r) for r in sorted(ALLOWED_REGISTRATION_ROLES)],
         write_only=True,
@@ -27,7 +33,10 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("email", "first_name", "last_name", "phone", "password", "role_name")
+        fields = (
+            "email", "first_name", "last_name", "phone", "password",
+            "role_name", "verification_channel",
+        )
 
     def validate_phone(self, value):
         phone = normalize_senegal_phone(value)
@@ -39,6 +48,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         role_name = validated_data.pop("role_name", "client")
+        validated_data.pop("verification_channel", "email")
 
         username = validated_data["email"]
 

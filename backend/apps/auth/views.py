@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 from django.conf import settings
+from django.core import signing
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied, ValidationError
@@ -25,11 +26,17 @@ from .utils import (
     email_verification_token, hash_guest_login_token, send_guest_login_link,
     send_verification_email,
 )
-from .phone_verification import check_phone_verification, start_phone_verification
+from .phone_verification import (
+    PhoneVerificationUnavailable,
+    check_phone_verification,
+    start_phone_verification,
+)
 from apps.security.utils import log_security_event
 from apps.users.models import PhoneOTP, Token, User
 
 logger = logging.getLogger(__name__)
+
+PHONE_REGISTRATION_SALT = "sunu-mall.phone-registration"
 
 
 class AuthAnonRateThrottle(AnonRateThrottle):
@@ -111,14 +118,26 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        verification_channel = serializer.validated_data.get("verification_channel", "email")
         user = serializer.save()
-        
-        # Envoyer l'email de vérification
-        send_verification_email(user)
+
+        phone_verification_token = None
+        if verification_channel == "sms":
+            try:
+                start_phone_verification(user.phone)
+            except PhoneVerificationUnavailable:
+                # L'inscription n'est pas finalisée si Twilio n'a pas accepté
+                # l'envoi. Supprimer ce compte évite de bloquer une nouvelle
+                # tentative avec le même email ou numéro.
+                user.delete()
+                raise
+            phone_verification_token = signing.dumps(
+                {"user_id": str(user.pk)}, salt=PHONE_REGISTRATION_SALT, compress=True
+            )
+        else:
+            send_verification_email(user)
 
         roles = [ur.role.name for ur in user.user_roles.select_related('role')]
-        is_merchant = 'merchant' in roles
-
         return Response({
             "user": {
                 "id": user.id,
@@ -127,18 +146,19 @@ class RegisterView(generics.CreateAPIView):
                 "last_name": user.last_name,
                 "phone": user.phone,
                 "roles": roles,
+                "permissions": [p.code for p in user.get_permissions()],
                 "is_verified": user.is_verified,
                 "has_password": True,
                 "must_change_password": user.must_change_password,
             },
             "access": None,
             "refresh": None,
+            "verification_channel": verification_channel,
+            "phone_verification_token": phone_verification_token,
             "message": (
-                "Inscription réussie ! Vérifiez votre email pour activer votre compte."
-                if not is_merchant
-                else "Inscription réussie ! Vérifiez votre email, puis connectez-vous : "
-                     "vous pourrez alors envoyer votre pièce d'identité pour activer "
-                     "votre boutique."
+                "Inscription réussie ! Saisissez le code reçu par SMS pour activer votre compte."
+                if verification_channel == "sms"
+                else "Inscription réussie ! Vérifiez votre email pour activer votre compte."
             ),
         }, status=status.HTTP_201_CREATED)
 
@@ -158,7 +178,7 @@ class LoginView(generics.GenericAPIView):
         
         if not user.is_verified:
             return Response({
-                "error": "Veuillez vérifier votre email avant de vous connecter."
+                "error": "Veuillez activer votre compte avec le lien email ou le code SMS reçu."
             }, status=status.HTTP_403_FORBIDDEN)
         
         refresh = RefreshToken.for_user(user)
@@ -179,12 +199,58 @@ class LoginView(generics.GenericAPIView):
                 "last_name": user.last_name,
                 "phone": user.phone,
                 "roles": roles,
+                "permissions": [p.code for p in user.get_permissions()],
                 "is_verified": user.is_verified,
                 "has_password": True,
                 "must_change_password": user.must_change_password,
             },
             "access": str(refresh.access_token),
             "refresh": str(refresh)
+        })
+
+
+class VerifyRegistrationPhoneView(APIView):
+    """Active un nouveau compte avec le code envoyé par Twilio Verify."""
+
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AuthAnonRateThrottle]
+
+    def post(self, request):
+        token = str((request.data or {}).get("token", "")).strip()
+        code = str((request.data or {}).get("code", "")).strip()
+        if not token:
+            raise ValidationError({"token": "Session de vérification manquante."})
+        if len(code) != 6 or not code.isdigit():
+            raise ValidationError({"code": "Saisissez le code SMS à 6 chiffres."})
+
+        try:
+            payload = signing.loads(
+                token,
+                salt=PHONE_REGISTRATION_SALT,
+                max_age=settings.PHONE_REGISTRATION_TOKEN_TTL_HOURS * 3600,
+            )
+            user = User.objects.get(pk=payload["user_id"], is_active=True)
+        except (signing.BadSignature, signing.SignatureExpired, KeyError, User.DoesNotExist):
+            raise ValidationError({"token": "Cette vérification a expiré. Recommencez l'inscription."})
+
+        if not (user.is_verified and user.phone_verified):
+            if not check_phone_verification(user.phone, code):
+                raise ValidationError({"code": "Code incorrect ou expiré."})
+            now = timezone.now()
+            user.is_verified = True
+            user.phone_verified = True
+            user.phone_verified_at = now
+            user.save(update_fields=["is_verified", "phone_verified", "phone_verified_at", "updated_at"])
+            log_security_event(
+                user,
+                "PHONE_CHANGE",
+                request,
+                metadata={"phone": user.phone, "action": "verify_registration_phone", "provider": "twilio"},
+            )
+
+        return Response({
+            "message": "Numéro vérifié. Votre compte est maintenant actif.",
+            "phone_verified": True,
         })
 
 class VerifyEmailView(APIView):
@@ -319,6 +385,7 @@ def _guest_session_payload(user, request, via):
             "last_name": user.last_name,
             "phone": user.phone,
             "roles": roles,
+            "permissions": [p.code for p in user.get_permissions()],
             "is_verified": user.is_verified,
             "has_password": user.has_usable_password(),
         },

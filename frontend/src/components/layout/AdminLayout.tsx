@@ -19,6 +19,7 @@ interface NavItem {
   to: string;
   label: string;
   icon: ReactNode;
+  permission?: string;
 }
 
 interface NavGroup {
@@ -37,65 +38,65 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: "MARKETPLACE",
     items: [
-      { to: "/admin-users", label: "Utilisateurs", icon: <Users className="h-4 w-4" /> },
-      { to: "/admin-sellers", label: "Vendeurs", icon: <StoreIcon className="h-4 w-4" /> },
-      { to: "/admin-shops", label: "Boutiques", icon: <StoreIcon className="h-4 w-4" /> },
-      { to: "/admin-products", label: "Produits", icon: <Package className="h-4 w-4" /> },
-      { to: "/admin-categories", label: "Catégories", icon: <Tag className="h-4 w-4" /> },
+      { to: "/admin-users", label: "Utilisateurs", icon: <Users className="h-4 w-4" />, permission: "view_user" },
+      { to: "/admin-sellers", label: "Vendeurs", icon: <StoreIcon className="h-4 w-4" />, permission: "sellers.view" },
+      { to: "/admin-shops", label: "Boutiques", icon: <StoreIcon className="h-4 w-4" />, permission: "view_store" },
+      { to: "/admin-products", label: "Produits", icon: <Package className="h-4 w-4" />, permission: "view_product" },
+      { to: "/admin-categories", label: "Catégories", icon: <Tag className="h-4 w-4" />, permission: "view_product" },
     ],
   },
   {
     title: "COMMERCE",
     items: [
-      { to: "/admin-orders", label: "Commandes", icon: <ClipboardList className="h-4 w-4" /> },
-      { to: "/admin-payments", label: "Paiements", icon: <CreditCard className="h-4 w-4" /> },
-      { to: "/admin-subscriptions", label: "Abonnements", icon: <Banknote className="h-4 w-4" /> },
-      { to: "/admin-refunds", label: "Remboursements", icon: <RefreshCw className="h-4 w-4" /> },
+      { to: "/admin-orders", label: "Commandes", icon: <ClipboardList className="h-4 w-4" />, permission: "view_order" },
+      { to: "/admin-payments", label: "Paiements", icon: <CreditCard className="h-4 w-4" />, permission: "view_payment" },
+      { to: "/admin-subscriptions", label: "Abonnements", icon: <Banknote className="h-4 w-4" />, permission: "subscriptions.view" },
+      { to: "/admin-refunds", label: "Remboursements", icon: <RefreshCw className="h-4 w-4" />, permission: "refunds.view" },
     ],
   },
   {
     title: "LIVRAISON",
     items: [
-      { to: "/admin-drivers", label: "Livreurs", icon: <Truck className="h-4 w-4" /> },
-      { to: "/admin-deliveries", label: "Livraisons", icon: <MapPin className="h-4 w-4" /> },
-      { to: "/admin-partners", label: "Partenaires logistiques", icon: <Building2 className="h-4 w-4" /> },
+      { to: "/admin-drivers", label: "Livreurs", icon: <Truck className="h-4 w-4" />, permission: "drivers.view" },
+      { to: "/admin-deliveries", label: "Livraisons", icon: <MapPin className="h-4 w-4" />, permission: "deliveries.view" },
+      { to: "/admin-partners", label: "Partenaires logistiques", icon: <Building2 className="h-4 w-4" />, permission: "drivers.view" },
     ],
   },
   {
     title: "SUPPORT",
     items: [
-      { to: "/admin-complaints", label: "Plaintes & Litiges", icon: <AlertTriangle className="h-4 w-4" /> },
-      { to: "/admin-support", label: "Tickets support", icon: <Headphones className="h-4 w-4" /> },
+      { to: "/admin-complaints", label: "Plaintes & Litiges", icon: <AlertTriangle className="h-4 w-4" />, permission: "complaints.view" },
+      { to: "/admin-support", label: "Tickets support", icon: <Headphones className="h-4 w-4" />, permission: "support.view" },
       { to: "/admin-notifications", label: "Notifications", icon: <Bell className="h-4 w-4" /> },
     ],
   },
   {
     title: "ADMINISTRATION",
     items: [
-      { to: "/admin-managers", label: "Administrateurs", icon: <ShieldCheck className="h-4 w-4" /> },
-      { to: "/admin-kyc-sellers", label: "KYC Vendeurs", icon: <BadgeCheck className="h-4 w-4" /> },
-      { to: "/admin-kyc-drivers", label: "KYC Livreurs", icon: <BadgeInfo className="h-4 w-4" /> },
-      { to: "/admin-security", label: "Sécurité & Audit", icon: <Lock className="h-4 w-4" /> },
+      { to: "/admin-managers", label: "Administrateurs", icon: <ShieldCheck className="h-4 w-4" />, permission: "admins.view" },
+      { to: "/admin-kyc-sellers", label: "KYC Vendeurs", icon: <BadgeCheck className="h-4 w-4" />, permission: "kyc.view" },
+      { to: "/admin-kyc-drivers", label: "KYC Livreurs", icon: <BadgeInfo className="h-4 w-4" />, permission: "kyc.view" },
+      { to: "/admin-security", label: "Sécurité & Audit", icon: <Lock className="h-4 w-4" />, permission: "audit.view" },
     ],
   },
   {
     title: "ANALYTIQUE",
     items: [
-      { to: "/admin-analytics", label: "Analytics", icon: <BarChart3 className="h-4 w-4" /> },
-      { to: "/admin-reports", label: "Rapports", icon: <FileText className="h-4 w-4" /> },
+      { to: "/admin-analytics", label: "Analytics", icon: <BarChart3 className="h-4 w-4" />, permission: "view_analytics" },
+      { to: "/admin-reports", label: "Rapports", icon: <FileText className="h-4 w-4" />, permission: "reports.view" },
     ],
   },
   {
     title: "TECHNIQUE",
     items: [
-      { to: "/admin-monitoring", label: "Monitoring", icon: <Activity className="h-4 w-4" /> },
-      { to: "/admin-incidents", label: "Incidents", icon: <Flame className="h-4 w-4" /> },
-      { to: "/admin-logs", label: "Logs", icon: <FileText className="h-4 w-4" /> },
-      { to: "/admin-deployments", label: "Déploiements", icon: <Database className="h-4 w-4" /> },
-      { to: "/admin-feature-flags", label: "Feature Flags", icon: <Flag className="h-4 w-4" /> },
-      { to: "/admin-maintenance", label: "Maintenance", icon: <Wrench className="h-4 w-4" /> },
-      { to: "/admin-backups", label: "Backups", icon: <Database className="h-4 w-4" /> },
-      { to: "/admin-emergency", label: "Emergency Recovery", icon: <Zap className="h-4 w-4" /> },
+      { to: "/admin-monitoring", label: "Monitoring", icon: <Activity className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-incidents", label: "Incidents", icon: <Flame className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-logs", label: "Logs", icon: <FileText className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-deployments", label: "Déploiements", icon: <Database className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-feature-flags", label: "Feature Flags", icon: <Flag className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-maintenance", label: "Maintenance", icon: <Wrench className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-backups", label: "Backups", icon: <Database className="h-4 w-4" />, permission: "ops.manage" },
+      { to: "/admin-emergency", label: "Emergency Recovery", icon: <Zap className="h-4 w-4" />, permission: "ops.manage" },
     ],
   },
 ];
@@ -120,11 +121,17 @@ export function AdminLayout() {
     setMobileOpen(false);
   }, [pathname]);
 
-  const activeLabel = NAV_GROUPS.flatMap((g) => g.items).find((i) => i.to === pathname)?.label ?? "Administration";
+  const isFullAdmin = user?.roles.some((role) => role === "admin" || role === "super_admin") ?? false;
+  const canAccess = (item: NavItem) => !item.permission || isFullAdmin || user?.permissions?.includes(item.permission);
+  const visibleGroups = NAV_GROUPS
+    .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
+    .filter((group) => group.items.length > 0);
+
+  const activeLabel = visibleGroups.flatMap((g) => g.items).find((i) => i.to === pathname)?.label ?? "Administration";
 
   const renderNav = (isCollapsed: boolean) => (
     <nav className="flex-1 overflow-y-auto px-2 py-2">
-      {NAV_GROUPS.map((group) => (
+      {visibleGroups.map((group) => (
         <div key={group.title} className="mb-2">
           {!isCollapsed && (
             <p className="mb-1 px-3 pt-3 text-[10px] font-bold uppercase tracking-widest text-white/40">

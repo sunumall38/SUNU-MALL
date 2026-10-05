@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 from apps.kyc.models import SellerKYC
 from apps.users.models import User, Role, UserRole
 from apps.auth.utils import email_verification_token, send_verification_email
+from apps.auth.phone_verification import PhoneVerificationUnavailable
 from django.utils.http import urlsafe_base64_encode
 from django.utils.encoding import force_bytes
 
@@ -26,6 +27,7 @@ class AuthTests(TestCase):
         self.register_url = reverse('auth_register')
         self.login_url = reverse('auth_login')
         self.verify_email_url = reverse('auth_verify_email')
+        self.verify_registration_phone_url = reverse('auth_verify_registration_phone')
         self.resend_verification_url = reverse('auth_resend_verification')
         self.token_url = reverse('token_obtain_pair')
         self.token_refresh_url = reverse('token_refresh')
@@ -98,6 +100,89 @@ class AuthTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(User.objects.get(email=data['email']).phone, '+221771234567')
+
+    @patch('apps.auth.views.start_phone_verification')
+    @patch('apps.auth.views.send_verification_email')
+    def test_register_by_sms_starts_twilio_and_returns_verification_token(self, mocked_email, mocked_sms):
+        data = {
+            'email': 'sms@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '77 123 45 67',
+            'role_name': 'merchant',
+            'verification_channel': 'sms',
+        }
+
+        response = self.client.post(self.register_url, data, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['verification_channel'], 'sms')
+        self.assertTrue(response.data['phone_verification_token'])
+        mocked_sms.assert_called_once_with('+221771234567')
+        mocked_email.assert_not_called()
+
+    @patch('apps.auth.views.check_phone_verification', return_value=True)
+    @patch('apps.auth.views.start_phone_verification')
+    def test_sms_code_activates_new_account(self, mocked_sms, mocked_check):
+        response = self.client.post(self.register_url, {
+            'email': 'sms-verify@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '+221771234567',
+            'role_name': 'merchant',
+            'verification_channel': 'sms',
+        }, format='json')
+
+        verify_response = self.client.post(self.verify_registration_phone_url, {
+            'token': response.data['phone_verification_token'],
+            'code': '123456',
+        }, format='json')
+
+        self.assertEqual(verify_response.status_code, status.HTTP_200_OK)
+        user = User.objects.get(email='sms-verify@example.com')
+        self.assertTrue(user.is_verified)
+        self.assertTrue(user.phone_verified)
+        mocked_check.assert_called_once_with('+221771234567', '123456')
+
+    @patch('apps.auth.views.start_phone_verification', side_effect=PhoneVerificationUnavailable())
+    def test_sms_provider_failure_does_not_leave_blocked_account(self, mocked_sms):
+        response = self.client.post(self.register_url, {
+            'email': 'sms-failure@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '+221771234567',
+            'role_name': 'merchant',
+            'verification_channel': 'sms',
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertFalse(User.objects.filter(email='sms-failure@example.com').exists())
+
+    @patch('apps.auth.views.check_phone_verification', return_value=False)
+    @patch('apps.auth.views.start_phone_verification')
+    def test_wrong_sms_code_does_not_activate_account(self, mocked_sms, mocked_check):
+        response = self.client.post(self.register_url, {
+            'email': 'sms-wrong@example.com',
+            'password': 'testpassword123',
+            'first_name': 'Awa',
+            'last_name': 'Ndiaye',
+            'phone': '+221771234567',
+            'role_name': 'client',
+            'verification_channel': 'sms',
+        }, format='json')
+
+        verify_response = self.client.post(self.verify_registration_phone_url, {
+            'token': response.data['phone_verification_token'],
+            'code': '000000',
+        }, format='json')
+
+        self.assertEqual(verify_response.status_code, status.HTTP_400_BAD_REQUEST)
+        user = User.objects.get(email='sms-wrong@example.com')
+        self.assertFalse(user.is_verified)
+        self.assertFalse(user.phone_verified)
 
     def test_register_rejects_phone_already_used(self):
         User.objects.create_user(

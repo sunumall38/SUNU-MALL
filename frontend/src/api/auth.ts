@@ -6,6 +6,8 @@ export interface AuthResponse {
   access: string | null;
   refresh: string | null;
   message?: string;
+  verification_channel?: "sms" | "email";
+  phone_verification_token?: string | null;
 }
 
 export function login(phone: string, password: string) {
@@ -19,8 +21,17 @@ export function register(payload: {
   last_name: string;
   phone: string;
   role_name?: "client" | "merchant" | "driver";
+  verification_channel?: "sms" | "email";
 } | FormData) {
   return apiPost<AuthResponse>("/auth/register/", payload, { auth: false });
+}
+
+export function verifyRegistrationPhone(token: string, code: string) {
+  return apiPost<{ message: string; phone_verified: true }>(
+    "/auth/verify-registration-phone/",
+    { token, code },
+    { auth: false },
+  );
 }
 
 export function resendVerification(phone: string) {
