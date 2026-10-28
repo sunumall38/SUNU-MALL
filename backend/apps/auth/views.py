@@ -677,7 +677,7 @@ class RequestPhoneOTPView(APIView):
         # Un seul code actif : on invalide les précédents du même numéro.
         PhoneOTP.objects.filter(user=user, phone=user.phone, verified_at__isnull=True).update(expires_at=timezone.now())
 
-        otp = PhoneOTP.objects.create(
+        PhoneOTP.objects.create(
             user=user,
             phone=user.phone,
             code_hash=PhoneOTP._hash(code),

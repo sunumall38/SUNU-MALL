@@ -8,7 +8,6 @@ PLT-/TKT-YYYYMMDD-NNNNNN sont générées côté serveur.
 import uuid
 
 from django.db import models
-from django.utils import timezone
 
 from apps.orders.models import Delivery, Driver, Order
 from apps.payments.models import Payment

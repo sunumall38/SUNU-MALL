@@ -13,7 +13,7 @@ from rest_framework.test import APIClient
 
 from apps.users.models import Role, UserRole
 
-from .models import Complaint, ComplaintTimeline, SupportTicket, TicketMessage
+from .models import Complaint, ComplaintTimeline, SupportTicket
 
 User = get_user_model()
 
@@ -225,7 +225,7 @@ class ComplaintsTestCase(TestCase):
 
     def test_ticket_isolation(self):
         self.auth(self.merchant)
-        created = self.client.post(
+        self.client.post(
             "/api/complaints/tickets/",
             {"category": "help", "subject": "Aide configuration", "description": "Comment créer une boutique ?"},
             format="json",

@@ -54,11 +54,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements/dev.txt
 
+      - name: Lint
+        run: ruff check .
+
       - name: Run migrations
         run: python manage.py migrate --noinput
 
+      - name: Check for missing migrations
+        run: python manage.py makemigrations --check --dry-run
+
+      # pytest exécute à la fois les tests des apps (apps/*/tests.py) et ceux
+      # de backend/tests/, que `manage.py test apps` ignorait.
       - name: Run tests
-        run: python manage.py test apps
+        run: pytest
 
   frontend:
     runs-on: ubuntu-latest

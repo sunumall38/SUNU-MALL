@@ -7,4 +7,4 @@ class SecurityConfig(AppConfig):
     verbose_name = "Sécurité (journal des actions sensibles)"
 
     def ready(self):
-        import apps.security.models
+        import apps.security.models  # noqa: F401

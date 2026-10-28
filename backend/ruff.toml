@@ -1,0 +1,9 @@
+# Lint du backend, exécuté par la CI (ruff check .).
+# Règles par défaut de ruff (pyflakes + erreurs pycodestyle) : imports
+# inutilisés, variables mortes, méthodes redéfinies par erreur...
+target-version = "py312"
+extend-exclude = ["migrations"]
+
+[lint.per-file-ignores]
+# Les settings héritent de base.py par `from .base import *`, volontairement.
+"config/settings/*.py" = ["F403", "F405", "E402"]

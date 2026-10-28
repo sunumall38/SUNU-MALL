@@ -3,7 +3,6 @@ Rapports et statistiques.
 """
 import uuid
 from django.db import models
-from django.utils import timezone
 from apps.users.models import User
 from apps.catalog.models import Store
 
