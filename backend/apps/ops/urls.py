@@ -13,5 +13,6 @@ router.register("emergency", views.EmergencyAccessViewSet, basename="ops-emergen
 
 urlpatterns = [
     path("alerts/", views.AlertCenterView.as_view(), name="ops-alerts"),
+    path("health/", views.AdminHealthView.as_view(), name="ops-health"),
     path("", include(router.urls)),
 ]

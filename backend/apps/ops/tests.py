@@ -55,11 +55,19 @@ class OpsTestCase(TestCase):
         for url in ["/health/", "/health/ready/"]:
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 200, resp.content)
-            self.assertIn("checks", resp.data)
-            for check in resp.data["checks"]:
-                self.assertIn("name", check)
-                self.assertIn("status", check)
-                self.assertIn(check["status"], ["ok", "degraded", "down"])
+            # Aucun détail d'infrastructure en public.
+            self.assertEqual(set(resp.data), {"status"})
+
+    def test_health_details_reserved_to_admins(self):
+        self.assertEqual(self.client.get("/api/ops/health/").status_code, 401)
+        self.auth(self.client_user)
+        self.assertEqual(self.client.get("/api/ops/health/").status_code, 403)
+        self.auth(self.admin)
+        resp = self.client.get("/api/ops/health/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        for check in resp.data["checks"]:
+            self.assertIn("name", check)
+            self.assertIn(check["status"], ["ok", "degraded", "down"])
 
     def test_health_aggregate_never_down_when_db_ok(self):
         resp = self.client.get("/health/")
