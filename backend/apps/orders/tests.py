@@ -388,10 +388,32 @@ class DeliveryEventsStreamTests(TestCase):
         response = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
         # Lecture d'un seul chunk : le flux SSE est infini, on ne le matérialise pas.
         chunk = next(response.streaming_content).decode("utf-8")
+        response.close()
         self.assertIn("data:", chunk)
         self.assertIn('"event": "snapshot"', chunk)
         self.assertIn('"status": "pending"', chunk)
         self.assertIn('"eta_seconds"', chunk)
+
+    @override_settings(SSE_MAX_CONCURRENT_STREAMS=1)
+    def test_events_stream_returns_204_when_all_slots_are_taken(self):
+        self.client.force_authenticate(self.customer)
+        first = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        second = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        first.close()
+        # 204 : l'EventSource s'arrête et le frontend passe au polling.
+        self.assertEqual(second.status_code, status.HTTP_204_NO_CONTENT)
+
+    @override_settings(SSE_MAX_CONCURRENT_STREAMS=1)
+    def test_events_stream_slot_is_released_on_close(self):
+        self.client.force_authenticate(self.customer)
+        # Fermé sans jamais avoir été lu : la place doit quand même revenir.
+        self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/").close()
+
+        response = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        response.close()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_events_stream_forbidden_for_stranger(self):
         stranger = self._make_user("stranger@example.com", Role.RoleName.CLIENT)
