@@ -177,6 +177,10 @@ class Payment(models.Model):
         invoice.mark_paid()
 
     def mark_failed(self):
+        # Un paiement réglé ou remboursé ne repasse jamais en échec (webhook
+        # tardif ou rejoué dans le désordre).
+        if self.status in (self.Status.SUCCESS, self.Status.REFUNDED, self.Status.FAILED):
+            return
         self.status = self.Status.FAILED
         self.save()
         if self.subscription_id:

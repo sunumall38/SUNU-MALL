@@ -10,7 +10,8 @@ from rest_framework.views import APIView
 from .models import Payment, Refund
 from .serializers import PaymentSerializer, RefundSerializer
 from .gateways import (
-    PaymentGatewayError, get_gateway, verify_orange_notification, verify_wave_signature,
+    FAILED, SUCCESS, PaymentGatewayError, available_methods, get_gateway,
+    verify_orange_notification, verify_wave_signature, wave_session_outcome,
 )
 from apps.monetization.models import Notification
 from apps.orders.models import Order
@@ -73,6 +74,28 @@ def _fulfill_payment(payment, changed_by=None):
     # Payment.mark_succeeded() lui-même — voir apps.payments.models.
 
 
+def _apply_outcome(payment, outcome, changed_by=None):
+    """Applique une issue SUCCESS/FAILED à un paiement encore modifiable."""
+    if outcome == SUCCESS:
+        _fulfill_payment(payment, changed_by=changed_by)
+    elif outcome == FAILED and payment.status == Payment.Status.PENDING:
+        payment.mark_failed()
+
+
+class PaymentMethodsView(APIView):
+    """GET /api/payments/methods/ — moyens de paiement proposés aux clients.
+
+    Le frontend n'affiche que ces moyens : un moyen sans passerelle réelle
+    configurée (ou la carte, sans passerelle du tout) n'est proposé qu'en
+    mode sandbox.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        return Response({"sandbox": bool(settings.PAYMENT_SANDBOX), "methods": available_methods()})
+
+
 class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Lecture seule : un paiement n'est jamais modifié directement par
@@ -113,14 +136,53 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         """Démarre le paiement auprès du fournisseur (ou de la simulation sandbox)."""
         payment = self.get_object()
         self._ensure_customer(payment)
-        gateway = get_gateway(payment.method)
+        if payment.status == Payment.Status.SUCCESS:
+            return Response({"error": "Ce paiement est déjà réglé."}, status=status.HTTP_409_CONFLICT)
+        if payment.status == Payment.Status.REFUNDED:
+            return Response({"error": "Ce paiement a été remboursé."}, status=status.HTTP_409_CONFLICT)
+        if payment.status == Payment.Status.FAILED:
+            # Nouvelle tentative après un échec : le paiement redevient
+            # payable (la commande, elle, n'a jamais quitté « en attente »).
+            payment.status = Payment.Status.PENDING
+            payment.save(update_fields=["status"])
         try:
+            gateway = get_gateway(payment.method)
             result = gateway.initiate(payment)
         except PaymentGatewayError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+            log_security_event(
+                None, "payment.gateway.error", request,
+                {"payment_id": str(payment.id), "method": payment.method, "error": str(exc)[:300]},
+            )
+            return Response(
+                {"error": "Le service de paiement est indisponible pour le moment. Réessayez dans quelques minutes."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         except NotImplementedError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_501_NOT_IMPLEMENTED)
         return Response(result)
+
+    @action(detail=True, methods=["post"], url_path="refresh")
+    def refresh(self, request, pk=None):
+        """
+        Vérifie le statut du paiement directement auprès du fournisseur.
+
+        Appelé par la page de retour du client (et par l'administration) :
+        si le webhook a été perdu ou tarde, le paiement est quand même
+        confirmé. Le statut vient toujours du fournisseur, jamais du client.
+        """
+        payment = self.get_object()
+        if payment.status == Payment.Status.PENDING and not settings.PAYMENT_SANDBOX and payment.provider_ref:
+            try:
+                outcome = get_gateway(payment.method).fetch_status(payment)
+            except PaymentGatewayError as exc:
+                log_security_event(
+                    None, "payment.gateway.status_error", request,
+                    {"payment_id": str(payment.id), "method": payment.method, "error": str(exc)[:300]},
+                )
+                outcome = None
+            _apply_outcome(payment, outcome)
+            payment.refresh_from_db()
+        return Response(PaymentSerializer(payment).data)
 
     @action(detail=True, methods=["post"], url_path="sandbox-confirm")
     def sandbox_confirm(self, request, pk=None):
@@ -195,18 +257,22 @@ class PaymentWebhookView(APIView):
             return None, None
         event_type = data.get("type") if isinstance(data, dict) else None
         if event_type and event_type != "checkout.session.completed":
-            return None, None
+            # Autres événements Wave (tentative refusée, versements…) : la
+            # session reste payable, rien à faire — accusé de réception pour
+            # que Wave ne les renvoie pas en boucle.
+            return None, "ignored"
         payment = self._find_payment_by_ref(event.get("client_reference"))
         if payment is None:
             payment = self._find_payment_by_ref(event.get("id"))
         if payment is None:
             return None, None
-        ps = str(event.get("payment_status") or "").lower()
-        if ps in ("succeeded", "fulfilled"):
-            return payment, "success"
-        if ps in ("cancelled", "expired") or str(event.get("checkout_status") or "").lower() == "expired":
-            return payment, "failed"
-        return payment, None
+        try:
+            outcome = wave_session_outcome(event, payment)
+        except PaymentGatewayError:
+            # Signature valide mais montant/devise différents : jamais de
+            # validation d'un paiement pour un autre montant.
+            return payment, "rejected"
+        return payment, outcome
 
     def _handle_orange(self, payload):
         """Notification Orange Money, token vérifié. Retourne (payment, outcome)."""
@@ -221,6 +287,22 @@ class PaymentWebhookView(APIView):
             payment = Payment.objects.filter(
                 metadata__orange_money__notif_token=notif_token
             ).first()
+        if payment is None and notif_token:
+            # Notification d'une tentative précédente du même paiement (le
+            # client a relancé le paiement puis réglé dans l'ancien onglet).
+            # Recherche bornée aux paiements Orange encore en attente.
+            from datetime import timedelta
+            from django.utils import timezone
+
+            recent = Payment.objects.filter(
+                method="orange_money", status=Payment.Status.PENDING,
+                created_at__gte=timezone.now() - timedelta(days=7),
+            ).only("id", "metadata")
+            for candidate in recent.iterator():
+                attempts = (candidate.metadata or {}).get("orange_money_attempts") or []
+                if any(a.get("notif_token") == notif_token for a in attempts):
+                    payment = Payment.objects.get(pk=candidate.pk)
+                    break
         if payment is None and (payload or {}).get("order_id"):
             payment = Payment.objects.filter(
                 metadata__orange_money__order_id=payload["order_id"]
@@ -265,6 +347,8 @@ class PaymentWebhookView(APIView):
                 payment, outcome = self._handle_orange(payload)
             else:
                 payment, outcome = None, None
+            if payment is None and outcome == "ignored":
+                return Response({"received": True, "status": "ignored"})
             if payment is None:
                 log_security_event(
                     None, "payment.webhook.unknown_payment", request,
@@ -275,14 +359,14 @@ class PaymentWebhookView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             if outcome == "rejected":
-                return self._reject(request, "notif_token_invalide")
+                return self._reject(
+                    request, "montant_wave_incoherent" if provider == "wave" else "notif_token_invalide",
+                )
             if outcome is None:
                 return Response({"received": True, "status": "ignored"})
             already = payment.status
-            if outcome == "success":
-                _fulfill_payment(payment)
-            else:
-                payment.mark_failed()
+            _apply_outcome(payment, outcome)
+            payment.refresh_from_db()
             if already == Payment.Status.SUCCESS:
                 log_security_event(
                     None, "payment.webhook.deduplicated", request,
@@ -363,6 +447,22 @@ class RefundViewSet(viewsets.ReadOnlyModelViewSet):
         refund = self.get_object()
         if refund.status == Refund.Status.COMPLETED:
             return Response({"error": "Ce remboursement a déjà été traité."}, status=status.HTTP_400_BAD_REQUEST)
+        payment = refund.payment
+        # Wave rembourse par API (la totalité de la session) ; Orange Money
+        # Web Payment n'a pas d'API de remboursement : l'administrateur
+        # renvoie l'argent lui-même avant de valider ici.
+        if not settings.PAYMENT_SANDBOX and payment.method == "wave" and payment.provider_ref:
+            try:
+                get_gateway("wave").refund(payment)
+            except PaymentGatewayError as exc:
+                log_security_event(
+                    request.user, "payment.refund.gateway_error", request,
+                    {"refund_id": refund.id, "error": str(exc)[:300]},
+                )
+                return Response(
+                    {"error": f"Wave n'a pas effectué le remboursement : {exc}"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
         refund.process()
         return Response(RefundSerializer(refund).data)
 

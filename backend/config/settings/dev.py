@@ -55,3 +55,7 @@ PASSWORD_HASHERS = ["config.settings.dev._FastPBKDF2PasswordHasher"]
 # INTERNAL_IPS = ["127.0.0.1"]
 
 # DATABASES est hérité de base.py (Postgres, via infra/docker-compose.dev.yml + pgAdmin)
+
+# Paiements simulés par défaut en local et dans les tests : aucune clé Wave /
+# Orange Money n'est nécessaire pour dérouler un achat de bout en bout.
+PAYMENT_SANDBOX = config("PAYMENT_SANDBOX", default=True, cast=bool)  # noqa: F405

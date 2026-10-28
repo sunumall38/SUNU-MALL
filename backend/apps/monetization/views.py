@@ -130,11 +130,37 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             )
         if Subscription.objects.filter(
             subscriber_id=user.id, subscriber_type="merchant",
-            status__in=[Subscription.Status.PENDING, Subscription.Status.SUSPENDED],
+            status=Subscription.Status.SUSPENDED,
         ).exists():
             return Response(
-                {"error": "Une demande d'abonnement est déjà en attente ou suspendue."},
+                {"error": "Votre abonnement est suspendu : contactez l'administration."},
                 status=status.HTTP_409_CONFLICT,
+            )
+        method = _requested_method(request)
+
+        # Souscription en attente jamais payée (client parti sans régler) :
+        # même formule → on reprend son paiement ; autre formule → on
+        # l'abandonne sans bruit pour ne jamais bloquer le commerçant.
+        for pending_sub in Subscription.objects.filter(
+            subscriber_id=user.id, subscriber_type="merchant", status=Subscription.Status.PENDING,
+        ):
+            pending_payment = _pending_payment_for(pending_sub)
+            if pending_sub.plan_id == plan.id and pending_payment is not None:
+                _reuse_pending(pending_payment, method)
+                return Response(
+                    {
+                        "subscription": SubscriptionSerializer(pending_sub).data,
+                        "payment": PaymentSerializer(pending_payment).data,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            _retire_pending(pending_sub.payments.all())
+            pending_sub.status = Subscription.Status.CANCELLED
+            pending_sub.save(update_fields=["status"])
+            pending_sub.record_history(
+                SubscriptionHistory.Action.CANCELLED, old_plan=pending_sub.plan, new_plan=pending_sub.plan,
+                old_end_date=pending_sub.ends_at, new_end_date=pending_sub.ends_at,
+                metadata={"reason": "replaced_before_payment"},
             )
 
         today = timezone.now().date()
@@ -181,7 +207,7 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
 
         payment = Payment.objects.create(
             subscription=subscription, amount=plan.price, currency="XOF",
-            method=request.data.get("payment_method", "wave"),
+            method=method,
             metadata={"action": "subscribe"},
         )
         return Response(
@@ -193,6 +219,41 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
 def _require_merchant(user):
     if not user.has_role(Role.RoleName.MERCHANT):
         raise PermissionDenied("Réservé aux comptes commerçants.")
+
+
+def _requested_method(request):
+    """Moyen de paiement demandé, refusé s'il n'est pas proposé ici."""
+    from apps.payments.gateways import is_method_available
+
+    method = request.data.get("payment_method", "wave")
+    if not is_method_available(method):
+        raise ValidationError({"payment_method": "Ce moyen de paiement n'est pas disponible."})
+    return method
+
+
+def _reuse_pending(payment, method):
+    """Réutilise un paiement en attente abandonné, en changeant de moyen si besoin.
+
+    Changer de moyen efface la référence de l'ancien fournisseur : une
+    nouvelle session sera créée au prochain `initiate`.
+    """
+    if payment.method != method:
+        payment.method = method
+        payment.provider_ref = ""
+        metadata = {
+            k: v for k, v in (payment.metadata or {}).items()
+            if not k.startswith("orange_money")
+        }
+        payment.metadata = metadata
+        payment.save(update_fields=["method", "provider_ref", "metadata"])
+    return payment
+
+
+def _retire_pending(payments):
+    """Abandonne sans notification des paiements en attente jamais réglés."""
+    from apps.payments.models import Payment
+
+    payments.filter(status=Payment.Status.PENDING).update(status=Payment.Status.FAILED)
 
 
 def _pending_payment_for(subscription):
@@ -266,19 +327,22 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
                 {"error": "Cet abonnement ne peut pas être renouvelé."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        pending = _pending_payment_for(subscription)
-        if pending:
-            return Response(
-                {"error": "Un paiement de renouvellement est déjà en attente.", "payment": pending.id},
-                status=status.HTTP_409_CONFLICT,
-            )
+        method = _requested_method(request)
 
         from apps.payments.models import Payment
         from apps.payments.serializers import PaymentSerializer
 
+        pending = _pending_payment_for(subscription)
+        if pending:
+            # Renouvellement déjà préparé mais jamais réglé : on le reprend.
+            if (pending.metadata or {}).get("action") == "renew":
+                _reuse_pending(pending, method)
+                return Response({"payment": PaymentSerializer(pending).data}, status=status.HTTP_200_OK)
+            _retire_pending(Payment.objects.filter(pk=pending.pk))
+
         payment = Payment.objects.create(
             subscription=subscription, amount=subscription.plan.price, currency="XOF",
-            method=request.data.get("payment_method", "wave"),
+            method=method,
             metadata={"action": "renew"},
         )
         return Response({"payment": PaymentSerializer(payment).data}, status=status.HTTP_201_CREATED)
@@ -325,19 +389,24 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
                 {"error": "Vous êtes déjà sur la formule demandée."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        pending = _pending_payment_for(subscription)
-        if pending:
-            return Response(
-                {"error": "Un paiement est déjà en attente pour cet abonnement.", "payment": pending.id},
-                status=status.HTTP_409_CONFLICT,
-            )
+        method = _requested_method(request)
 
         from apps.payments.models import Payment
         from apps.payments.serializers import PaymentSerializer
 
+        pending = _pending_payment_for(subscription)
+        if pending:
+            intent = pending.metadata or {}
+            if intent.get("action") == "change_plan" and intent.get("plan_code") == plan.code:
+                _reuse_pending(pending, method)
+                return Response({"payment": PaymentSerializer(pending).data}, status=status.HTTP_200_OK)
+            # Paiement en attente pour une autre intention : abandonné, le
+            # commerçant n'est jamais bloqué par une tentative non réglée.
+            _retire_pending(Payment.objects.filter(pk=pending.pk))
+
         payment = Payment.objects.create(
             subscription=subscription, amount=plan.price, currency="XOF",
-            method=request.data.get("payment_method", "wave"),
+            method=method,
             metadata={"action": "change_plan", "plan_code": plan.code},
         )
         return Response({"payment": PaymentSerializer(payment).data}, status=status.HTTP_201_CREATED)

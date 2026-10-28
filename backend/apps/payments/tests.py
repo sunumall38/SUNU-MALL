@@ -16,7 +16,8 @@ from apps.catalog.models import Store
 from apps.orders.models import Order
 from apps.payments.models import Payment, Refund
 from apps.payments.gateways import (
-    OrangeMoneyGateway, PaymentGatewayError, WaveGateway, verify_wave_signature,
+    FAILED, SUCCESS, OrangeMoneyGateway, PaymentGatewayError, WaveGateway,
+    available_methods, get_gateway, verify_wave_signature,
 )
 
 
@@ -195,7 +196,10 @@ class GatewayIntegrationTests(TestCase):
         self.assertEqual(posted["json"]["amount"], "10000")
         self.assertEqual(posted["json"]["currency"], "XOF")
         self.assertEqual(posted["json"]["client_reference"], str(self.payment.id))
-        self.assertIn("/order-confirmed?order=", posted["json"]["success_url"])
+        self.assertEqual(
+            posted["json"]["success_url"], f"http://localhost:3004/paiement/retour?payment={self.payment.id}"
+        )
+        self.assertTrue(posted["json"]["error_url"].endswith("&error=1"))
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.provider_ref, "cos-test123")
         self.assertEqual(result["sandbox"], False)
@@ -244,10 +248,12 @@ class GatewayIntegrationTests(TestCase):
         self.assertEqual(self.payment.metadata["orange_money"]["notif_token"], "notif-123")
         self.assertEqual(result["checkout_url"], "https://om.test/pay/pay-xyz")
 
-    def test_orange_money_uses_dev_path_in_sandbox(self):
-        with override_settings(PAYMENT_SANDBOX=True):
+    def test_orange_money_test_environment_uses_dev_path_and_ouv(self):
+        with override_settings(ORANGE_MONEY_COUNTRY_PATH="dev"):
             gateway = OrangeMoneyGateway()
-            self.assertIn("dev", gateway._webpayment_path())
+            self.assertEqual(gateway._webpayment_path(), "/orange-money-webpay/dev/v1/webpayment")
+            self.assertEqual(gateway._currency(), "OUV")
+        self.assertEqual(OrangeMoneyGateway()._currency(), "XOF")
 
     def test_orange_money_requires_merchant_key(self):
         with override_settings(ORANGE_MONEY_MERCHANT_KEY=""):
@@ -397,3 +403,278 @@ class PaymentWebhookRealTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         payment.refresh_from_db()
         self.assertEqual(payment.status, Payment.Status.SUCCESS)
+
+
+def _order_payment(method="wave", amount=10000, suffix=""):
+    """Commande + paiement en attente pour un client (utilitaire des tests)."""
+    Role.objects.get_or_create(name=Role.RoleName.CLIENT)
+    Role.objects.get_or_create(name=Role.RoleName.MERCHANT)
+    merchant = User.objects.create_user(
+        username=f"m{suffix}@x.com", email=f"m{suffix}@x.com", password="p", is_verified=True
+    )
+    UserRole.objects.create(user=merchant, role=Role.objects.get(name=Role.RoleName.MERCHANT))
+    store = Store.objects.create(owner=merchant, name=f"Boutique{suffix}")
+    customer = User.objects.create_user(
+        username=f"c{suffix}@x.com", email=f"c{suffix}@x.com", password="p", is_verified=True
+    )
+    UserRole.objects.create(user=customer, role=Role.objects.get(name=Role.RoleName.CLIENT))
+    order = Order.objects.create(customer=customer, store=store, total_amount=amount)
+    payment = Payment.objects.create(order=order, amount=amount, method=method)
+    return customer, payment
+
+
+REAL_GATEWAYS = dict(
+    PAYMENT_SANDBOX=False,
+    WAVE_API_KEY="wave_test_key",
+    WAVE_API_BASE_URL="https://api.wave.test",
+    FRONTEND_URL="https://shop.test",
+    BACKEND_URL="https://api.shop.test/api",
+    ORANGE_MONEY_CLIENT_ID="om_client",
+    ORANGE_MONEY_CLIENT_SECRET="om_secret",
+    ORANGE_MONEY_MERCHANT_KEY="om_merchant",
+    ORANGE_MONEY_API_BASE_URL="https://api.orange.test",
+    ORANGE_MONEY_COUNTRY_PATH="sn",
+    ORANGE_MONEY_CURRENCY="XOF",
+    PAYMENT_PROVIDERS={"wave": "whsec_test", "orange_money": ""},
+)
+
+
+class PaymentMethodsTests(TestCase):
+    def test_sandbox_offers_every_method(self):
+        with override_settings(PAYMENT_SANDBOX=True):
+            response = APIClient().get("/api/payments/methods/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["sandbox"])
+        self.assertEqual([m["id"] for m in response.data["methods"]], ["wave", "orange_money", "card"])
+
+    def test_production_only_offers_configured_gateways(self):
+        with override_settings(**REAL_GATEWAYS):
+            self.assertEqual([m["id"] for m in available_methods()], ["wave", "orange_money"])
+        with override_settings(**{**REAL_GATEWAYS, "ORANGE_MONEY_MERCHANT_KEY": ""}):
+            self.assertEqual([m["id"] for m in available_methods()], ["wave"])
+
+    def test_production_never_falls_back_to_simulation(self):
+        with override_settings(**REAL_GATEWAYS):
+            with self.assertRaises(PaymentGatewayError):
+                get_gateway("card")
+
+    def test_checkout_rejects_unavailable_method(self):
+        from apps.orders.serializers import CheckoutSerializer
+
+        with override_settings(**REAL_GATEWAYS):
+            serializer = CheckoutSerializer()
+            with self.assertRaises(Exception):
+                serializer.validate_payment_method("card")
+            self.assertEqual(serializer.validate_payment_method("wave"), "wave")
+
+
+@override_settings(**REAL_GATEWAYS)
+class WaveStatusAndRefundTests(TestCase):
+    def setUp(self):
+        self.customer, self.payment = _order_payment()
+        self.payment.provider_ref = "cos-abc"
+        self.payment.save(update_fields=["provider_ref"])
+        self.client = APIClient()
+        self.client.force_authenticate(self.customer)
+
+    def _session(self, **overrides):
+        session = {
+            "id": "cos-abc", "amount": "10000", "currency": "XOF",
+            "checkout_status": "complete", "payment_status": "succeeded",
+            "wave_launch_url": "https://pay.wave.test/c/cos-abc",
+        }
+        session.update(overrides)
+        return session
+
+    def test_refresh_confirms_payment_when_webhook_was_lost(self):
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse(self._session())) as get:
+            response = self.client.post(f"/api/payments/{self.payment.id}/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get.call_args[0][0], "https://api.wave.test/v1/checkout/sessions/cos-abc")
+        self.assertEqual(response.data["status"], Payment.Status.SUCCESS)
+        self.payment.order.refresh_from_db()
+        self.assertEqual(self.payment.order.status, Order.Status.PAID)
+
+    def test_refresh_refuses_session_with_other_amount(self):
+        with mock.patch(
+            "apps.payments.gateways.requests.get", return_value=FakeResponse(self._session(amount="100"))
+        ):
+            response = self.client.post(f"/api/payments/{self.payment.id}/refresh/")
+        self.assertEqual(response.data["status"], Payment.Status.PENDING)
+
+    def test_refresh_keeps_pending_while_session_is_open(self):
+        session = self._session(checkout_status="open", payment_status="cancelled")
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse(session)):
+            response = self.client.post(f"/api/payments/{self.payment.id}/refresh/")
+        self.assertEqual(response.data["status"], Payment.Status.PENDING)
+
+    def test_refresh_marks_expired_session_failed(self):
+        session = self._session(checkout_status="expired", payment_status="processing")
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse(session)):
+            response = self.client.post(f"/api/payments/{self.payment.id}/refresh/")
+        self.assertEqual(response.data["status"], Payment.Status.FAILED)
+
+    def test_refresh_survives_gateway_outage(self):
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse({}, status_code=500)):
+            response = self.client.post(f"/api/payments/{self.payment.id}/refresh/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], Payment.Status.PENDING)
+
+    def test_initiate_reuses_open_session(self):
+        session = self._session(checkout_status="open", payment_status="processing")
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse(session)), \
+                mock.patch("apps.payments.gateways.requests.post") as post:
+            response = self.client.post(f"/api/payments/{self.payment.id}/initiate/")
+        post.assert_not_called()
+        self.assertEqual(response.data["checkout_url"], "https://pay.wave.test/c/cos-abc")
+
+    def test_initiate_refuses_paid_payment(self):
+        self.payment.mark_succeeded()
+        response = self.client.post(f"/api/payments/{self.payment.id}/initiate/")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_initiate_hides_gateway_details_from_customer(self):
+        with mock.patch("apps.payments.gateways.requests.get", return_value=FakeResponse({}, status_code=500)), \
+                mock.patch(
+                    "apps.payments.gateways.requests.post",
+                    return_value=FakeResponse({"message": "invalid api key wave_test_key"}, status_code=401),
+                ):
+            response = self.client.post(f"/api/payments/{self.payment.id}/initiate/")
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertNotIn("wave_test_key", response.data["error"])
+
+    def test_late_failure_never_undoes_success(self):
+        self.payment.mark_succeeded()
+        self.payment.mark_failed()
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, Payment.Status.SUCCESS)
+
+    def test_admin_refund_calls_wave_refund_api(self):
+        admin = User.objects.create_user(username="a@x.com", email="a@x.com", password="p", is_verified=True)
+        Role.objects.get_or_create(name=Role.RoleName.ADMIN)
+        UserRole.objects.create(user=admin, role=Role.objects.get(name=Role.RoleName.ADMIN))
+        self.payment.mark_succeeded()
+        refund = Refund.objects.create(payment=self.payment, amount=10000, reason="annulation")
+        self.client.force_authenticate(admin)
+        with mock.patch("apps.payments.gateways.requests.post", return_value=FakeResponse({}, text="")) as post:
+            response = self.client.post(f"/api/payments/refunds/{refund.id}/process/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(post.call_args[0][0], "https://api.wave.test/v1/checkout/sessions/cos-abc/refund")
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, Payment.Status.REFUNDED)
+
+    def test_admin_refund_stops_when_wave_refuses(self):
+        admin = User.objects.create_user(username="a@x.com", email="a@x.com", password="p", is_verified=True)
+        Role.objects.get_or_create(name=Role.RoleName.ADMIN)
+        UserRole.objects.create(user=admin, role=Role.objects.get(name=Role.RoleName.ADMIN))
+        self.payment.mark_succeeded()
+        refund = Refund.objects.create(payment=self.payment, amount=10000, reason="annulation")
+        self.client.force_authenticate(admin)
+        with mock.patch(
+            "apps.payments.gateways.requests.post",
+            return_value=FakeResponse({"code": "checkout-refund-failed"}, status_code=400),
+        ):
+            response = self.client.post(f"/api/payments/refunds/{refund.id}/process/")
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        refund.refresh_from_db()
+        self.assertNotEqual(refund.status, Refund.Status.COMPLETED)
+
+
+@override_settings(**REAL_GATEWAYS)
+class WaveWebhookHardeningTests(TestCase):
+    def _post(self, body):
+        raw = json.dumps(body)
+        ts = str(int(time.time()))
+        signature = hmac.new(b"whsec_test", f"{ts}{raw}".encode(), hashlib.sha256).hexdigest()
+        return APIClient().post(
+            "/api/payments/webhook/wave/", data=raw, content_type="application/json",
+            HTTP_WAVE_SIGNATURE=f"t={ts},v1={signature}",
+        )
+
+    def test_other_wave_events_are_acknowledged(self):
+        response = self._post({"id": "evt", "type": "checkout.session.payment_failed", "data": {"id": "cos-x"}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "ignored")
+
+    def test_signed_event_with_wrong_amount_is_rejected(self):
+        _, payment = _order_payment()
+        response = self._post({
+            "id": "evt", "type": "checkout.session.completed",
+            "data": {
+                "id": "cos-x", "amount": "100", "currency": "XOF", "client_reference": str(payment.id),
+                "checkout_status": "complete", "payment_status": "succeeded",
+            },
+        })
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+
+
+@override_settings(**REAL_GATEWAYS)
+class OrangeMoneyRetryAndStatusTests(TestCase):
+    def setUp(self):
+        self.customer, self.payment = _order_payment(method="orange_money")
+
+    def _fake_post(self, calls, status_value="SUCCESS"):
+        counter = {"n": 0}
+
+        def fake_post(url, **kwargs):
+            calls.append((url, kwargs))
+            if "oauth" in url:
+                return FakeResponse({"access_token": "tok"})
+            if url.endswith("/transactionstatus"):
+                return FakeResponse({"status": status_value, "txnid": "MP1"})
+            counter["n"] += 1
+            n = counter["n"]
+            return FakeResponse({
+                "pay_token": f"pay-{n}", "payment_url": f"https://om.test/{n}", "notif_token": f"notif-{n}",
+            })
+
+        return fake_post
+
+    def test_each_attempt_gets_a_new_order_id(self):
+        calls = []
+        with mock.patch("apps.payments.gateways.requests.post", side_effect=self._fake_post(calls)):
+            OrangeMoneyGateway().initiate(self.payment)
+            self.payment.refresh_from_db()
+            OrangeMoneyGateway().initiate(self.payment)
+        order_ids = [kw["json"]["order_id"] for url, kw in calls if url.endswith("/webpayment")]
+        self.assertEqual(len(set(order_ids)), 2)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.metadata["orange_money"]["pay_token"], "pay-2")
+        self.assertEqual(self.payment.metadata["orange_money_attempts"][0]["notif_token"], "notif-1")
+
+    def test_notification_of_previous_attempt_is_still_accepted(self):
+        calls = []
+        with mock.patch("apps.payments.gateways.requests.post", side_effect=self._fake_post(calls)):
+            OrangeMoneyGateway().initiate(self.payment)
+            self.payment.refresh_from_db()
+            OrangeMoneyGateway().initiate(self.payment)
+        response = APIClient().post(
+            "/api/payments/webhook/orange_money/",
+            data=json.dumps({"status": "SUCCESS", "notif_token": "notif-1", "txnid": "MP1"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, Payment.Status.SUCCESS)
+
+    def test_status_check_confirms_payment(self):
+        calls = []
+        with mock.patch("apps.payments.gateways.requests.post", side_effect=self._fake_post(calls)):
+            OrangeMoneyGateway().initiate(self.payment)
+            self.payment.refresh_from_db()
+            outcome = OrangeMoneyGateway().fetch_status(self.payment)
+        self.assertEqual(outcome, SUCCESS)
+        status_call = [kw for url, kw in calls if url.endswith("/transactionstatus")][0]
+        self.assertEqual(
+            status_call["json"],
+            {"order_id": self.payment.metadata["orange_money"]["order_id"], "amount": 10000, "pay_token": "pay-1"},
+        )
+
+    def test_status_check_reports_expired_payment(self):
+        calls = []
+        with mock.patch("apps.payments.gateways.requests.post", side_effect=self._fake_post(calls, "EXPIRED")):
+            OrangeMoneyGateway().initiate(self.payment)
+            self.payment.refresh_from_db()
+            self.assertEqual(OrangeMoneyGateway().fetch_status(self.payment), FAILED)

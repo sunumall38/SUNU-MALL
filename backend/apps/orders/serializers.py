@@ -395,6 +395,13 @@ class CheckoutSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(choices=["wave", "orange_money", "card"])
     items = CheckoutItemInputSerializer(many=True)
 
+    def validate_payment_method(self, value):
+        from apps.payments.gateways import is_method_available
+
+        if not is_method_available(value):
+            raise serializers.ValidationError("Ce moyen de paiement n'est pas disponible.")
+        return value
+
 
 class DeliveryQuoteSerializer(serializers.Serializer):
     """Payload pour prévisualiser le frais de livraison avant de passer commande."""

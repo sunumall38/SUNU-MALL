@@ -627,3 +627,39 @@ class NotificationBroadcastTests(MonetizationTestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
+
+
+class AbandonedSubscriptionPaymentTests(MonetizationTestCase):
+    """Un paiement d'abonnement jamais réglé ne bloque jamais le commerçant."""
+
+    def _subscribe(self, code, method="wave"):
+        return self.client.post(
+            f"/api/monetization/subscription-plans/{self.get_plan(code).id}/subscribe/",
+            {"payment_method": method},
+        )
+
+    def test_same_plan_resumes_pending_payment(self):
+        self.give_prior_subscription(self.seller)
+        self.client.force_authenticate(self.seller)
+        first = self._subscribe("PRO")
+        second = self._subscribe("PRO", method="orange_money")
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.json()["payment"]["id"], first.json()["payment"]["id"])
+        self.assertEqual(second.json()["payment"]["method"], "orange_money")
+
+    def test_other_plan_replaces_abandoned_request(self):
+        self.give_prior_subscription(self.seller)
+        self.client.force_authenticate(self.seller)
+        first = self._subscribe("PRO")
+        second = self._subscribe("BUSINESS")
+        self.assertEqual(second.status_code, 201, second.content)
+        old = Payment.objects.get(id=first.json()["payment"]["id"])
+        self.assertEqual(old.status, Payment.Status.FAILED)
+        self.assertEqual(old.subscription.status, Subscription.Status.CANCELLED)
+
+    def test_unavailable_method_is_refused(self):
+        self.give_prior_subscription(self.seller)
+        self.client.force_authenticate(self.seller)
+        with self.settings(PAYMENT_SANDBOX=False, WAVE_API_KEY=""):
+            resp = self._subscribe("PRO")
+        self.assertEqual(resp.status_code, 400)
