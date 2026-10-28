@@ -110,6 +110,7 @@ export default function AdminOrdersPage() {
                     <p className="font-bold text-ink">{formatPrice(order.total_amount)}</p>
                     {order.delivery?.status === "pending" ? (
                       <select
+                        aria-label="Assigner un livreur"
                         disabled={assigningDeliveryId === order.delivery.id}
                         onChange={(e) => order.delivery && assign(order.delivery.id, e.target.value)}
                         onClick={(e) => e.stopPropagation()}

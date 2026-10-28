@@ -295,6 +295,7 @@ export default function MerchantDashboardPage() {
                 <span className="font-bold text-ink">{formatPrice(order.total_amount)}</span>
                 {order.delivery?.status === "pending" ? (
                   <select
+                    aria-label="Assigner un livreur"
                     disabled={assigningDeliveryId === order.delivery.id}
                     onChange={(e) => order.delivery && assign(order.delivery.id, e.target.value)}
                     defaultValue=""

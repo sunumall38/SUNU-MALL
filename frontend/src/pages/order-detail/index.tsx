@@ -194,6 +194,7 @@ export default function OrderDetailPage() {
               </p>
             ) : order.delivery.status === "pending" ? (
               <select
+                aria-label="Assigner un livreur"
                 disabled={assigning}
                 onChange={(e) => assign(e.target.value)}
                 defaultValue=""
