@@ -206,6 +206,12 @@ PAYMENT_PROVIDERS = {
     "orange_money": config("ORANGE_MONEY_WEBHOOK_SECRET", default=""),
 }
 
+# --- Commandes non payées ---
+# Une commande réserve son stock ; sans paiement au bout de ce délai elle est
+# annulée et le stock rendu (apps/orders/expiry.py). Supérieur à la durée de
+# vie d'une session Wave (30 min) pour ne jamais couper un paiement en cours.
+ORDER_PAYMENT_TIMEOUT_MINUTES = config("ORDER_PAYMENT_TIMEOUT_MINUTES", default=120, cast=int)
+
 # --- Confirmation de livraison par code OTP ---
 # Le client valide la réception d'une commande avec un code à 6 chiffres
 # que le livreur lui remet physiquement. Validité courte et essais limités.

@@ -213,15 +213,30 @@ class Inventory(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def reserve(self, qty):
-        if self.available() >= qty:
-            self.reserved_quantity += qty
-            self.save()
-            return True
-        return False
+        """Réserve `qty` unités, en une seule requête conditionnelle.
+
+        La vérification du stock et l'incrément se font dans le même UPDATE :
+        deux acheteurs simultanés ne peuvent jamais prendre le dernier
+        article tous les deux.
+        """
+        qty = int(qty)
+        if qty <= 0:
+            return False
+        updated = Inventory.objects.filter(
+            pk=self.pk, quantity__gte=models.F("reserved_quantity") + qty,
+        ).update(reserved_quantity=models.F("reserved_quantity") + qty, updated_at=timezone.now())
+        self.refresh_from_db(fields=["quantity", "reserved_quantity"])
+        return updated == 1
 
     def release(self, qty):
-        self.reserved_quantity = max(0, self.reserved_quantity - qty)
-        self.save()
+        """Rend `qty` unités réservées (annulation, commande non payée)."""
+        from django.db.models.functions import Greatest
+
+        Inventory.objects.filter(pk=self.pk).update(
+            reserved_quantity=Greatest(models.F("reserved_quantity") - int(qty), 0),
+            updated_at=timezone.now(),
+        )
+        self.refresh_from_db(fields=["quantity", "reserved_quantity"])
 
     def available(self):
         return self.quantity - self.reserved_quantity

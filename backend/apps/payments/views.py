@@ -1,7 +1,7 @@
 import json
 import uuid
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -54,12 +54,45 @@ def _send_order_confirmation(order):
     notification.send()
 
 
+def _target_cancelled(payment):
+    if payment.order_id is not None:
+        return payment.order.status == Order.Status.CANCELLED
+    if payment.global_order_id is not None:
+        return payment.global_order.status == "cancelled"
+    return False
+
+
 def _fulfill_payment(payment, changed_by=None):
     """Traite un paiement confirmé réussi, quel que soit le canal (sandbox,
-    webhook Wave, webhook Orange Money). Idempotent : `mark_succeeded` ne
-    ré-exécute jamais deux fois commissions/abonnement, et le changement de
-    statut de commande est lui aussi sauf."""
-    payment.mark_succeeded()
+    webhook Wave, webhook Orange Money, vérification de statut).
+
+    Idempotent et sûr en concurrence : le paiement est relu sous verrou, et
+    seule la première confirmation déclenche le traitement (commande payée,
+    email, affectation du livreur). Un webhook rejoué ou une vérification
+    simultanée ne fait plus rien.
+
+    Si la commande a été annulée avant l'arrivée du paiement (client parti,
+    commande expirée), l'argent est bien encaissé mais la commande reste
+    annulée et un remboursement est ouvert pour l'administration.
+    """
+    with transaction.atomic():
+        locked = Payment.objects.select_for_update().get(pk=payment.pk)
+        if locked.status == Payment.Status.SUCCESS:
+            payment.refresh_from_db()
+            return False
+        locked.mark_succeeded()
+    payment.refresh_from_db()
+
+    if _target_cancelled(payment):
+        Refund.objects.get_or_create(
+            payment=payment, order=None,
+            defaults={
+                "amount": payment.amount,
+                "reason": "Paiement reçu après l'annulation de la commande",
+            },
+        )
+        return True
+
     if payment.order_id is not None:
         payment.order.change_status(Order.Status.PAID, changed_by=changed_by)
         _send_order_confirmation(payment.order)
@@ -67,11 +100,19 @@ def _fulfill_payment(payment, changed_by=None):
         if delivery:
             delivery.auto_assign()
     elif payment.global_order_id is not None:
+        # Sous-commandes annulées pendant que le paiement était en attente
+        # (ex. boutique en rupture) : leur part est remboursée.
+        for sub_order in payment.global_order.orders.filter(status=Order.Status.CANCELLED):
+            Refund.objects.get_or_create(
+                payment=payment, order=sub_order,
+                defaults={"amount": sub_order.total_amount, "reason": "Sous-commande annulée avant paiement"},
+            )
         delivery = payment.global_order.deliveries.first()
         if delivery:
             delivery.auto_assign()
     # Le côté abonnement (activation + facture) est déjà géré par
     # Payment.mark_succeeded() lui-même — voir apps.payments.models.
+    return True
 
 
 def _apply_outcome(payment, outcome, changed_by=None):
@@ -140,6 +181,11 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({"error": "Ce paiement est déjà réglé."}, status=status.HTTP_409_CONFLICT)
         if payment.status == Payment.Status.REFUNDED:
             return Response({"error": "Ce paiement a été remboursé."}, status=status.HTTP_409_CONFLICT)
+        if _target_cancelled(payment):
+            return Response(
+                {"error": "Cette commande a été annulée : elle ne peut plus être payée."},
+                status=status.HTTP_409_CONFLICT,
+            )
         if payment.status == Payment.Status.FAILED:
             # Nouvelle tentative après un échec : le paiement redevient
             # payable (la commande, elle, n'a jamais quitté « en attente »).
@@ -440,7 +486,9 @@ class RefundViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(status=status_filter)
         if user.is_admin():
             return qs
-        return qs.filter(payment__order__customer=user)
+        return qs.filter(
+            models.Q(payment__order__customer=user) | models.Q(payment__global_order__customer=user)
+        )
 
     @action(detail=True, methods=["post"], permission_classes=[permissions.IsAuthenticated, IsAdmin])
     def process(self, request, pk=None):
@@ -451,7 +499,13 @@ class RefundViewSet(viewsets.ReadOnlyModelViewSet):
         # Wave rembourse par API (la totalité de la session) ; Orange Money
         # Web Payment n'a pas d'API de remboursement : l'administrateur
         # renvoie l'argent lui-même avant de valider ici.
-        if not settings.PAYMENT_SANDBOX and payment.method == "wave" and payment.provider_ref:
+        # L'API Wave ne rembourse qu'une session entière : un remboursement
+        # partiel (une boutique d'une commande multi-boutiques) se fait à la
+        # main depuis l'espace Wave Business, puis se valide ici.
+        if (
+            not settings.PAYMENT_SANDBOX and payment.method == "wave" and payment.provider_ref
+            and not refund.is_partial()
+        ):
             try:
                 get_gateway("wave").refund(payment)
             except PaymentGatewayError as exc:

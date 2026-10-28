@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate, formatEta, formatPrice } from "@/lib/utils";
 import type { Address, DeliveryEvent, DeliveryStatus, GlobalOrder, Order } from "@/types";
+import { isHandoverStatus } from "@/lib/delivery";
 
 const PAYMENT_STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "danger"> = {
   success: "success",
@@ -323,14 +324,14 @@ export default function TrackingPage() {
             </div>
           </div>
         )}
-        {deliveryStatus === "picked_up" && !isGlobal && isAuthMode && (
+        {isHandoverStatus(deliveryStatus) && isAuthMode && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-accent bg-muted/40 p-3">
             <p className="text-sm text-ink">
               <strong>Votre colis est arrivé.</strong> Le livreur vous remet un code de confirmation : validez la réception pour
               finaliser votre commande.
             </p>
             <Link
-              to={`/delivery-confirm?order=${(tracked as Order).id}`}
+              to={isGlobal ? `/delivery-confirm?gorder=${tracked.id}` : `/delivery-confirm?order=${(tracked as Order).id}`}
               className="btn-orange focus-ring inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
             >
               <PackageCheck className="h-4 w-4" />

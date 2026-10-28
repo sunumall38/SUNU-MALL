@@ -37,6 +37,27 @@ Cloudflare Pages (boutique), paiement réel Wave et Orange Money.
   bloquer le commerçant.
 
 ### Corrigé
+- Stock : rendu à l'annulation ; une commande non payée sous 2 h est annulée
+  et libère ses articles ; réservation atomique (plus de survente du dernier
+  article).
+- Annulation impossible dès que le colis a quitté la boutique (plus de
+  remboursement d'un colis en cours de livraison).
+- Un paiement arrivé après l'annulation laisse la commande annulée et ouvre
+  un remboursement ; une confirmation rejouée ne refait plus rien.
+- Livraison : le code de remise fonctionne aussi « en transit » et « en
+  livraison » (les courses pouvaient ne jamais se terminer), code créé à la
+  dernière collecte d'une mission multi-boutiques, « Signaler un échec »
+  réparé, confirmation multi-boutiques côté client.
+- Multi-boutiques : fonds des vendeurs libérés après livraison, annulation
+  d'une seule boutique avec remboursement de sa part, contre-passation des
+  ventes de chaque vendeur, remboursements visibles par le client, achats
+  personnels d'un commerçant visibles.
+- Portefeuilles vendeurs et plateforme modifiés sous verrou (plus d'écriture
+  écrasée entre une vente et un retrait).
+- Suivi en direct limité à des connexions de 50 s qui se renouvellent : il
+  ne peut plus bloquer le serveur.
+- Achat d'un produit inactif ou panier vide refusés aussi pour une boutique
+  unique ; suggestion de livreurs (méthode HTTP) réparée.
 - Plus aucun repli silencieux sur le paiement simulé en production ; la carte
   bancaire, sans passerelle, n'est plus proposée hors mode test.
 - Webhook Wave : montant et devise contrôlés, événements secondaires acquittés.

@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from apps.commissions.tasks import release_pending_funds_task
 from apps.monetization.tasks import expire_and_remind_subscriptions
+from apps.orders.expiry import expire_unpaid_orders
 from apps.ops.models import SystemSetting
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ LAST_RUN_KEY = "ops.daily_tasks.last_run"
 DAILY_TASKS = [
     ("expire_and_remind_subscriptions", expire_and_remind_subscriptions),
     ("release_pending_funds", release_pending_funds_task),
+    ("expire_unpaid_orders", expire_unpaid_orders),
 ]
 
 
