@@ -16,10 +16,11 @@ export interface SubmitKycResult {
   status: KycStatus;
 }
 
-export function listSellerKycs(params?: { page?: number; status?: KycStatus }) {
+export function listSellerKycs(params?: { page?: number; status?: KycStatus; seller?: string }) {
   const query = new URLSearchParams();
   if (params?.page) query.set("page", String(params.page));
   if (params?.status) query.set("status", params.status);
+  if (params?.seller) query.set("seller", params.seller);
   const qs = query.toString();
   return apiGet<Paginated<SellerKyc>>(`/kyc/seller-kyc/${qs ? `?${qs}` : ""}`);
 }

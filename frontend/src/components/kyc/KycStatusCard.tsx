@@ -36,7 +36,7 @@ const KINDS = {
     label: "Vendeur",
     headline: "Vérification vendeur",
     description:
-      "Pour ouvrir votre boutique et commercialiser vos produits, votre identité doit être vérifiée par Sunu Mall.",
+      "Première étape pour vendre sur Sunu Mall : envoyez votre pièce d'identité. Elle sera examinée en même temps que votre boutique.",
     icon: <ShieldCheck className="h-5 w-5" />,
     getMy: kycApi.getMySellerKyc,
     submit: kycApi.submitSellerKyc,
@@ -54,6 +54,8 @@ const KINDS = {
 
 interface Props {
   kind: "seller" | "driver";
+  /** Appelé après un envoi réussi (ex. pour débloquer l'espace vendeur). */
+  onSubmitted?: () => void;
 }
 
 async function fetchOwn(getMy: () => Promise<unknown>): Promise<SellerKyc | DriverKyc | null> {
@@ -65,7 +67,7 @@ async function fetchOwn(getMy: () => Promise<unknown>): Promise<SellerKyc | Driv
   }
 }
 
-export function KycStatusCard({ kind }: Props) {
+export function KycStatusCard({ kind, onSubmitted }: Props) {
   const cfg = KINDS[kind];
   const { data, loading, refetch } = useAsync(() => fetchOwn(cfg.getMy), [kind]);
 
@@ -73,6 +75,7 @@ export function KycStatusCard({ kind }: Props) {
   const [documentType, setDocumentType] = useState("cni");
   const [front, setFront] = useState<File | null>(null);
   const [back, setBack] = useState<File | null>(null);
+  const [address, setAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
@@ -90,12 +93,14 @@ export function KycStatusCard({ kind }: Props) {
       form.set("document_type", documentType);
       form.set("document_front", front);
       form.set("document_back", back);
+      if (kind === "seller") form.set("address", address.trim());
       await cfg.submit(form);
       setSubmitSuccess("Documents envoyés ! La vérification est en cours.");
       setShowForm(false);
       setFront(null);
       setBack(null);
       refetch();
+      onSubmitted?.();
     } catch {
       setSubmitError("L'envoi a échoué. Réessayez ou utilisez des fichiers plus légers (JPG/PNG/PDF, < 8 Mo).");
     } finally {
@@ -142,6 +147,18 @@ export function KycStatusCard({ kind }: Props) {
               <span className="block text-xs font-semibold text-muted-foreground">Verso de la pièce</span>
               <input type="file" accept="image/*,application/pdf" onChange={(e) => setBack(e.target.files?.[0] ?? null)} className="mt-1 block w-full text-sm text-ink" />
             </label>
+            {kind === "seller" && (
+              <label>
+                <span className="block text-xs font-semibold text-muted-foreground">Adresse (optionnel)</span>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Quartier, ville"
+                  className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-orange focus:ring-2 focus:ring-orange/20"
+                />
+              </label>
+            )}
             {submitError && <p className="text-sm text-danger">{submitError}</p>}
             <div className="flex justify-end gap-2">
               <Button size="sm" variant="secondary" onClick={() => setShowForm(false)}>
@@ -221,6 +238,18 @@ export function KycStatusCard({ kind }: Props) {
                 <span className="block text-xs font-semibold text-muted-foreground">Verso de la pièce</span>
                 <input type="file" accept="image/*,application/pdf" onChange={(e) => setBack(e.target.files?.[0] ?? null)} className="mt-1 block w-full text-sm text-ink" />
               </label>
+              {kind === "seller" && (
+                <label>
+                  <span className="block text-xs font-semibold text-muted-foreground">Adresse (optionnel)</span>
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Quartier, ville"
+                    className="mt-1 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-orange focus:ring-2 focus:ring-orange/20"
+                  />
+                </label>
+              )}
               {submitError && <p className="text-sm text-danger">{submitError}</p>}
               <div className="flex justify-end gap-2">
                 <Button size="sm" variant="secondary" onClick={() => setShowForm(false)}>
