@@ -37,7 +37,7 @@ export function apiErrorMessage(err: unknown, fallback = "Une erreur est survenu
       }
       return null;
     };
-    for (const key of ["detail", "non_field_errors"]) {
+    for (const key of ["detail", "error", "non_field_errors"]) {
       const text = read(record[key]);
       if (text) return text;
     }

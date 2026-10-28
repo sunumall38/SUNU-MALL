@@ -10,11 +10,9 @@ import { useCheckoutStore } from "@/store/checkoutStore";
 import { formatPrice } from "@/lib/utils";
 import { apiErrorMessage, ApiError } from "@/lib/api";
 import type { CheckoutPayload, GlobalOrder, Order } from "@/types";
-import { PAYMENT_METHODS } from "@/lib/paymentMethods";
+import { startPayment, usePaymentMethods } from "@/lib/paymentFlow";
 import { CardPaymentForm } from "@/components/checkout/CardPaymentForm";
 import { isCardComplete, type CardDetails } from "@/components/checkout/cardValidation";
-
-const METHODS = PAYMENT_METHODS;
 
 export default function CheckoutPaymentPage() {
   const navigate = useNavigate();
@@ -27,21 +25,29 @@ export default function CheckoutPaymentPage() {
   const [confirming, setConfirming] = useState<"success" | "failed" | null>(null);
   const [paymentFailed, setPaymentFailed] = useState(false);
   const [cardDetails, setCardDetails] = useState<CardDetails>({ holder: "", number: "", expiry: "", cvc: "" });
+  const { methods: METHODS, loading: methodsLoading, error: methodsError } = usePaymentMethods();
+
+  // Le moyen mémorisé n'est peut-être pas proposé sur cet environnement
+  // (ex. carte bancaire hors mode test) : on bascule sur le premier proposé.
+  useEffect(() => {
+    if (METHODS.length > 0 && !METHODS.some((m) => m.id === paymentMethod)) {
+      setPaymentMethod(METHODS[0].id);
+    }
+  }, [METHODS, paymentMethod, setPaymentMethod]);
 
   useEffect(() => {
     if (!createdOrder?.payment) return;
     let cancelled = false;
-    paymentsApi
-      .initiatePayment(createdOrder.payment.id)
+    setError(null);
+    startPayment(createdOrder.payment.id)
       .then((res) => {
         if (cancelled) return;
-        // Passerelle réelle qui affiche sa propre page de paiement : on
-        // délègue au navigateur (redirection vers Wave / Orange Money).
-        if (res.checkout_url) {
-          setRedirectingTo(res.checkout_url);
-          window.location.assign(res.checkout_url);
+        // Passerelle réelle : le navigateur part vers Wave / Orange Money
+        // puis revient sur /paiement/retour.
+        if (res.kind === "redirect") {
+          setRedirectingTo(res.url);
         } else {
-          setSandboxMessage(res.message ?? "Mode test : aucune vraie transaction n'est envoyée.");
+          setSandboxMessage(res.message);
         }
       })
       .catch((err) => {
@@ -131,6 +137,41 @@ export default function CheckoutPaymentPage() {
       );
     }
 
+    if (!sandboxMessage) {
+      const isGlobal = "number_of_stores" in createdOrder;
+      return (
+        <div className="flex flex-col gap-6">
+          <h1 className="font-display text-2xl font-bold text-gray-900">Paiement</h1>
+          <Card className="flex flex-col items-center gap-4 py-8 text-center">
+            {error ? (
+              <>
+                <TriangleAlert className="h-8 w-8 text-danger" />
+                <p className="text-sm text-danger">{error}</p>
+                <p className="text-xs text-muted-foreground">
+                  Votre commande n°{createdOrder.id.slice(0, 8)} est enregistrée : vous pourrez aussi la payer depuis
+                  « Mes commandes ».
+                </p>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Button onClick={() => setCreatedOrder({ ...createdOrder })}>Réessayer le paiement</Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      reset();
+                      navigate(isGlobal ? `/tracking?gorder=${createdOrder.id}` : "/orders");
+                    }}
+                  >
+                    Mes commandes
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Spinner label="Préparation du paiement sécurisé…" />
+            )}
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col gap-6">
         <h1 className="font-display text-2xl font-bold text-gray-900">Paiement</h1>
@@ -187,6 +228,15 @@ export default function CheckoutPaymentPage() {
       <h1 className="font-display text-2xl font-bold text-gray-900">Paiement</h1>
 
       <div className="flex flex-col gap-3">
+        {methodsLoading && <Spinner label="Chargement des moyens de paiement…" />}
+        {!methodsLoading && METHODS.length === 0 && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+            <TriangleAlert className="h-4 w-4 shrink-0" />
+            {methodsError
+              ? "Impossible de charger les moyens de paiement. Vérifiez votre connexion puis rechargez la page."
+              : "Le paiement en ligne n'est pas encore ouvert. Réessayez plus tard."}
+          </div>
+        )}
         {METHODS.map((method) => (
           <button key={method.id} onClick={() => setPaymentMethod(method.id)} className="text-left">
             <Card
@@ -232,7 +282,14 @@ export default function CheckoutPaymentPage() {
         </div>
       )}
 
-      <Button onClick={handleConfirm} loading={submitting} className="w-full" disabled={paymentMethod === "card" && !isCardComplete(cardDetails)}>
+      <Button
+        onClick={handleConfirm}
+        loading={submitting}
+        className="w-full"
+        disabled={
+          !METHODS.some((m) => m.id === paymentMethod) || (paymentMethod === "card" && !isCardComplete(cardDetails))
+        }
+      >
         Confirmer et payer {formatPrice(total)}
       </Button>
     </div>

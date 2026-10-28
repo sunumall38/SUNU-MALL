@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Check, History as HistoryIcon, CreditCard, Crown, TriangleAlert } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Check, CheckCircle2, History as HistoryIcon, CreditCard, Crown, TriangleAlert } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { useAsync } from "@/hooks/useAsync";
 import * as monetizationApi from "@/api/monetization";
 import { Badge } from "@/components/ui/Badge";
@@ -22,6 +22,8 @@ import type { SubscriptionPlan } from "@/types";
 const PLAN_ORDER: Record<string, number> = { STARTER: 0, PRO: 1, BUSINESS: 2 };
 
 export default function SubscriptionsPage() {
+  const [searchParams] = useSearchParams();
+  const paidJustNow = searchParams.get("paiement") === "ok";
   const { data: plans, loading: loadingPlans } = useAsync(() => monetizationApi.listSubscriptionPlans(), []);
   const { data: subscriptions, loading: loadingSubs, refetch } = useAsync(() => monetizationApi.listSubscriptions(), []);
   const { data: account, loading: loadingAccount, refetch: refetchAccount } = useAsync(
@@ -90,6 +92,13 @@ export default function SubscriptionsPage() {
           <Button variant="secondary">Découvrir nos offres</Button>
         </Link>
       </div>
+
+      {paidJustNow && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3.5 py-2.5 text-sm text-green-800">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Paiement confirmé : votre abonnement est à jour.
+        </div>
+      )}
 
       {success && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3.5 py-2.5 text-sm text-green-700">

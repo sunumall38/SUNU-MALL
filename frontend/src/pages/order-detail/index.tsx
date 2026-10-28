@@ -4,6 +4,8 @@ import { CreditCard, MapPin, PackageX, Truck, User, XCircle } from "lucide-react
 import { useAsync } from "@/hooks/useAsync";
 import * as ordersApi from "@/api/orders";
 import * as paymentsApi from "@/api/payments";
+import { startPayment } from "@/lib/paymentFlow";
+import { apiErrorMessage } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -80,9 +82,16 @@ export default function OrderDetailPage() {
     if (!order?.payment) return;
     setRetrying(true);
     try {
-      await paymentsApi.sandboxConfirmPayment(order.payment.id, "success");
-      refetch();
-    } finally {
+      // Vraie passerelle : départ vers Wave / Orange Money. Mode test :
+      // la confirmation est simulée sur place.
+      const started = await startPayment(order.payment.id);
+      if (started.kind === "sandbox") {
+        await paymentsApi.sandboxConfirmPayment(order.payment.id, "success");
+        refetch();
+        setRetrying(false);
+      }
+    } catch (err) {
+      window.alert(apiErrorMessage(err, "Impossible de relancer le paiement."));
       setRetrying(false);
     }
   }

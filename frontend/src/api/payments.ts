@@ -31,6 +31,25 @@ export function initiatePayment(paymentId: string) {
   return apiPost<InitiatePaymentResult>(`/payments/${paymentId}/initiate/`);
 }
 
+export interface PaymentMethodsResult {
+  sandbox: boolean;
+  methods: { id: "wave" | "orange_money" | "card"; label: string }[];
+}
+
+/** Moyens de paiement réellement proposés sur cet environnement. */
+export function getPaymentMethods() {
+  return apiGet<PaymentMethodsResult>(`/payments/methods/`);
+}
+
+export function getPayment(paymentId: string) {
+  return apiGet<Payment>(`/payments/${paymentId}/`);
+}
+
+/** Demande au backend de vérifier le statut auprès de Wave / Orange Money. */
+export function refreshPayment(paymentId: string) {
+  return apiPost<Payment>(`/payments/${paymentId}/refresh/`);
+}
+
 export function sandboxConfirmPayment(paymentId: string, outcome: "success" | "failed") {
   return apiPost<Payment>(`/payments/${paymentId}/sandbox-confirm/`, { outcome });
 }

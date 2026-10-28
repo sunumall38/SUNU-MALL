@@ -4,6 +4,7 @@ import { CheckCircle2, Clock, MapPin, PackageCheck, PackageSearch, RefreshCw, Se
 import { useAsync } from "@/hooks/useAsync";
 import * as ordersApi from "@/api/orders";
 import * as paymentsApi from "@/api/payments";
+import { startPayment } from "@/lib/paymentFlow";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -139,12 +140,14 @@ export default function TrackingPage() {
     if (!tracked?.payment) return;
     setRetrying(true);
     try {
-      const result = await paymentsApi.initiatePayment(tracked.payment.id);
-      if (result.sandbox) {
+      const started = await startPayment(tracked.payment.id);
+      if (started.kind === "sandbox") {
         await paymentsApi.sandboxConfirmPayment(tracked.payment.id, "success");
+        refetch();
+        setRetrying(false);
       }
-      refetch();
-    } finally {
+    } catch (err) {
+      window.alert(apiErrorMessage(err, "Impossible de relancer le paiement."));
       setRetrying(false);
     }
   }

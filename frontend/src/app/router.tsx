@@ -37,6 +37,7 @@ import CheckoutAddressPage from "@/pages/checkout-address";
 import CheckoutDeliveryPage from "@/pages/checkout-delivery";
 import CheckoutPaymentPage from "@/pages/checkout-payment";
 import OrderConfirmedPage from "@/pages/order-confirmed";
+import PaymentReturnPage from "@/pages/payment-return";
 import OrdersPage from "@/pages/orders";
 import TrackingPage from "@/pages/tracking";
 import DeliveryConfirmPage from "@/pages/delivery-confirm";
@@ -153,6 +154,7 @@ export const router = createBrowserRouter([
       { path: "/checkout-delivery", element: <CheckoutDeliveryPage /> },
       { path: "/checkout-payment", element: <CheckoutPaymentPage /> },
       { path: "/order-confirmed", element: <OrderConfirmedPage /> },
+      { path: "/paiement/retour", element: <PaymentReturnPage /> },
       { path: "/orders", element: <OrdersPage /> },
       { path: "/tracking", element: <TrackingPage /> },
       { path: "/delivery-confirm", element: <DeliveryConfirmPage /> },

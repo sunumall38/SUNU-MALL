@@ -6,15 +6,15 @@ import { Card } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { ApiError } from "@/lib/api";
 import { formatPrice } from "@/lib/utils";
-import { PAYMENT_METHODS } from "@/lib/paymentMethods";
+import { startPayment, usePaymentMethods } from "@/lib/paymentFlow";
+import { Spinner } from "@/components/ui/Spinner";
 import type { Payment } from "@/types";
-
-const METHODS = PAYMENT_METHODS;
 
 /**
  * Parcours de paiement d'abonnement (souscription, renouvellement,
  * changement de formule) : choix du moyen → création d'un paiement en attente
- * côté backend → confirmation (sandbox ici, webhook en production).
+ * côté backend → page Wave / Orange Money (retour sur /paiement/retour) ou,
+ * en mode test, confirmation simulée.
  * Le backend reste la seule source de vérité : rien n'est activé côté
  * frontend, le statut est calculé après confirmation serveur du paiement.
  */
@@ -33,14 +33,18 @@ export function PaymentModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [method, setMethod] = useState<(typeof METHODS)[number]["id"]>("wave");
+  const { methods: METHODS, sandbox, loading: methodsLoading } = usePaymentMethods();
+  const [chosen, setMethod] = useState<"wave" | "orange_money" | "card" | null>(null);
+  const method = chosen && METHODS.some((m) => m.id === chosen) ? chosen : METHODS[0]?.id ?? null;
   const [creating, setCreating] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [pendingPayment, setPendingPayment] = useState<Payment | null>(null);
   const [confirming, setConfirming] = useState<"success" | "failed" | null>(null);
   const [paymentFailed, setPaymentFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleCreate() {
+    if (!method) return;
     setCreating(true);
     setError(null);
     try {
@@ -51,10 +55,17 @@ export function PaymentModal({
         onSuccess();
         return;
       }
+      if (!sandbox) {
+        const started = await startPayment(result.payment.id);
+        if (started.kind === "redirect") {
+          setRedirecting(true);
+          return;
+        }
+      }
       setPendingPayment(result.payment);
     } catch (err) {
-      const data = err instanceof ApiError ? (err.data as { error?: string }) : null;
-      setError(data?.error ?? "Impossible de préparer le paiement pour le moment.");
+      const data = err instanceof ApiError ? (err.data as { error?: string; payment_method?: string }) : null;
+      setError(data?.error ?? data?.payment_method ?? "Impossible de préparer le paiement pour le moment.");
     } finally {
       setCreating(false);
     }
@@ -78,13 +89,19 @@ export function PaymentModal({
 
   return (
     <Modal open onClose={onClose} title={title} size="sm">
-      {!pendingPayment && (
+      {redirecting && <Spinner label="Redirection vers la page de paiement sécurisée…" />}
+
+      {!pendingPayment && !redirecting && (
         <div className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
             <span className="font-semibold text-ink">{formatPrice(amount)}</span>
             {periodLabel ? ` ${periodLabel}` : ""}
           </p>
           <div className="flex flex-col gap-2">
+            {methodsLoading && <Spinner label="Chargement des moyens de paiement…" />}
+            {!methodsLoading && METHODS.length === 0 && (
+              <p className="text-sm text-muted-foreground">Le paiement en ligne n'est pas encore ouvert.</p>
+            )}
             {METHODS.map((m) => (
               <button key={m.id} onClick={() => setMethod(m.id)} className="text-left">
                 <Card variant="interactive" className={method === m.id ? "border-orange ring-1 ring-orange" : ""}>
@@ -108,7 +125,7 @@ export function PaymentModal({
               {error}
             </div>
           )}
-          <Button onClick={handleCreate} loading={creating} className="w-full">
+          <Button onClick={handleCreate} loading={creating} disabled={!method} className="w-full">
             {creating ? "Préparation…" : `Payer ${formatPrice(amount)}`}
           </Button>
         </div>
