@@ -15,6 +15,7 @@ from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, No
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
+from .models import delivery_tour_started
 from .models import (
     Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryPickup,
     DeliveryPricingRule, DeliveryTracking, Driver, GlobalOrder, Order,
@@ -389,21 +390,33 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         if not is_allowed:
             raise PermissionDenied("Vous ne pouvez annuler que vos propres commandes.")
-        if not order.can_be_cancelled():
-            if order.delivery_started():
-                raise ValidationError("Le colis a déjà été remis au livreur : la commande ne peut plus être annulée.")
-            raise ValidationError(f"Une commande au statut « {order.status} » ne peut plus être annulée.")
 
         by_merchant = order.store.owner_id == user.id and order.customer_id != user.id
         with transaction.atomic():
-            order.change_status(Order.Status.CANCELLED, changed_by=user)
+            # Verrous dans un ordre fixe (achat global → commande → paiement),
+            # le même que la confirmation de paiement et l'expiration : deux
+            # annulations simultanées, ou une annulation pendant un paiement,
+            # s'exécutent l'une après l'autre au lieu de rembourser deux fois.
+            if order.global_order_id:
+                GlobalOrder.objects.select_for_update().get(pk=order.global_order_id)
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            list(Payment.objects.select_for_update().filter(
+                models.Q(order_id=order.pk) | models.Q(global_order_id=order.global_order_id)
+                if order.global_order_id else models.Q(order_id=order.pk)
+            ))
+            if not order.can_be_cancelled():
+                if order.delivery_started():
+                    raise ValidationError("Le colis a déjà été remis au livreur : la commande ne peut plus être annulée.")
+                raise ValidationError(f"Une commande au statut « {order.status} » ne peut plus être annulée.")
+            if not order.change_status(Order.Status.CANCELLED, changed_by=user):
+                raise ValidationError("Cette commande vient d'être modifiée : actualisez la page.")
             if order.global_order_id:
                 cancel_store_in_global_order(order, user, by_merchant=by_merchant)
             else:
                 delivery = getattr(order, "delivery", None)
                 if delivery and delivery.status in Order.PRE_PICKUP_DELIVERY_STATUSES:
                     delivery.cancel(user=user)
-                payment = getattr(order, "payment", None)
+                payment = Payment.objects.filter(order_id=order.pk).first()
                 if payment and payment.status == Payment.Status.SUCCESS:
                     # Créé « en attente » ; un admin le traite (RefundViewSet.process).
                     Refund.objects.create(
@@ -1216,21 +1229,20 @@ class GlobalOrderViewSet(viewsets.ReadOnlyModelViewSet):
         user = request.user
         if not (global_order.customer_id == user.id or user.is_admin()):
             raise PermissionDenied("Vous ne pouvez annuler que vos propres commandes.")
-        if global_order.status == GlobalOrder.Status.CANCELLED:
-            raise ValidationError("Cette commande a déjà été annulée.")
-
-        delivery = global_order.deliveries.first()
-        started = delivery is not None and (
-            delivery.status not in Order.PRE_PICKUP_DELIVERY_STATUSES
-            or delivery.pickups.filter(pickup_status=DeliveryPickup.Status.PICKED_UP).exists()
-        )
-        if started:
-            raise ValidationError(
-                "Des colis ont déjà été remis au livreur : la commande ne peut plus être annulée. "
-                "Contactez le support pour un retour."
-            )
 
         with transaction.atomic():
+            # Même ordre de verrous que la confirmation de paiement.
+            global_order = GlobalOrder.objects.select_for_update().get(pk=global_order.pk)
+            list(Payment.objects.select_for_update().filter(global_order_id=global_order.pk))
+            if global_order.status == GlobalOrder.Status.CANCELLED:
+                raise ValidationError("Cette commande a déjà été annulée.")
+            delivery = global_order.deliveries.first()
+            if delivery is not None and delivery_tour_started(delivery):
+                raise ValidationError(
+                    "Des colis ont déjà été remis au livreur : la commande ne peut plus être annulée. "
+                    "Contactez le support pour un retour."
+                )
+
             for order in global_order.orders.exclude(status=Order.Status.CANCELLED):
                 order.change_status(Order.Status.CANCELLED, changed_by=user)
             if delivery is not None:

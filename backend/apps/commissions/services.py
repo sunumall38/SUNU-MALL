@@ -191,8 +191,13 @@ def reverse_commission_for_refund(refund):
     contre-passée sous-commande par sous-commande. Toujours en transaction,
     protégé par le flag is_refunded (jamais deux contre-passations).
     """
-    for order in refund.refunded_orders():
-        _reverse_commission_for_order(refund, order)
+    orders = refund.refunded_orders()
+    if not orders:
+        return
+    with transaction.atomic():
+        lock_wallets_for_orders(orders)
+        for order in orders:
+            _reverse_commission_for_order(refund, order)
 
 
 def _reverse_commission_for_order(refund, order):
@@ -245,6 +250,23 @@ def _reverse_commission_for_order(refund, order):
             order=order,
             description=f"Reversement de la commission {commission_tx.commission_rate}%",
         )
+
+
+def lock_wallets_for_orders(orders):
+    """Verrouille les portefeuilles concernés dans un ordre fixe, plateforme en dernier.
+
+    Une vente multi-boutiques crédite plusieurs vendeurs puis la plateforme.
+    Sans ordre fixe, deux paiements simultanés verrouillaient A → plateforme
+    → B d'un côté et B → plateforme de l'autre : interblocage PostgreSQL
+    (erreur 500 sur le webhook). Tous les verrous sont pris d'un coup, triés
+    par vendeur, puis la plateforme ; les relectures suivantes dans la même
+    transaction ne bloquent plus.
+    """
+    seller_ids = sorted({order.store.owner_id for order in orders})
+    for seller_id in seller_ids:
+        SellerWallet.objects.get_or_create(seller_id=seller_id)
+    list(SellerWallet.objects.select_for_update().filter(seller_id__in=seller_ids).order_by("seller_id"))
+    _locked_platform()
 
 
 def _locked_wallet(seller):

@@ -44,6 +44,16 @@ class OrderLifecycleTests(MultiStoreTestMixin, TestCase):
         )
         self.assertEqual(response.status_code, 200, response.data)
 
+    def _age(self, order=None, global_order=None, hours=3):
+        """Fait comme si la commande et sa dernière tentative de paiement dataient de `hours` heures."""
+        past = timezone.now() - timedelta(hours=hours)
+        if order is not None:
+            Order.objects.filter(pk=order.pk).update(created_at=past)
+            Payment.objects.filter(order=order).update(updated_at=past)
+        if global_order is not None:
+            GlobalOrder.objects.filter(pk=global_order.pk).update(created_at=past)
+            Payment.objects.filter(global_order=global_order).update(updated_at=past)
+
     def _reserved(self, variant):
         return Inventory.objects.get(variant=variant).reserved_quantity
 
@@ -63,7 +73,7 @@ class OrderLifecycleTests(MultiStoreTestMixin, TestCase):
 
     def test_unpaid_orders_expire_and_release_stock(self, _gate):
         order = self._single()
-        Order.objects.filter(pk=order.pk).update(created_at=timezone.now() - timedelta(hours=3))
+        self._age(order=order)
         self.assertEqual(expire_unpaid_orders(), 1)
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.CANCELLED)
@@ -78,13 +88,13 @@ class OrderLifecycleTests(MultiStoreTestMixin, TestCase):
     def test_paid_order_never_expires(self, _gate):
         order = self._single()
         self._pay(order.payment)
-        Order.objects.filter(pk=order.pk).update(created_at=timezone.now() - timedelta(days=2))
+        self._age(order=order, hours=48)
         self.assertEqual(expire_unpaid_orders(), 0)
 
     def test_expired_multistore_order_releases_every_store(self, _gate):
         response = self._perform_checkout()
         global_order = GlobalOrder.objects.get(pk=response.data["id"])
-        GlobalOrder.objects.filter(pk=global_order.pk).update(created_at=timezone.now() - timedelta(hours=3))
+        self._age(global_order=global_order)
         self.assertEqual(expire_unpaid_orders(), 1)
         global_order.refresh_from_db()
         self.assertEqual(global_order.status, GlobalOrder.Status.CANCELLED)
@@ -281,3 +291,59 @@ class OrderLifecycleTests(MultiStoreTestMixin, TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         listing = self.client.get(f"/api/orders/global-orders/{response.data['id']}/")
         self.assertEqual(listing.status_code, 200)
+
+    # ----------------------------------------------------------- concurrence
+
+    def test_second_cancel_neither_refunds_nor_releases_twice(self, _gate):
+        other = self._single(quantity=5)  # réservation d'un autre client
+        order = self._single(quantity=3)
+        self._pay(order.payment)
+        self.assertEqual(self.client.post(f"/api/orders/{order.id}/cancel/").status_code, 200)
+        self.assertEqual(self.client.post(f"/api/orders/{order.id}/cancel/").status_code, 400)
+        self.assertEqual(Refund.objects.count(), 1)
+        self.assertEqual(self._reserved(self.variant_a), 5)
+        self.assertEqual(Order.objects.get(pk=other.pk).status, Order.Status.PENDING)
+
+    def test_stale_instance_cannot_redo_a_transition(self, _gate):
+        order = self._single(quantity=3)
+        stale = Order.objects.get(pk=order.pk)
+        self.assertTrue(order.change_status(Order.Status.CANCELLED))
+        self.assertFalse(stale.change_status(Order.Status.CANCELLED))
+        self.assertFalse(stale.change_status(Order.Status.PAID))
+        self.assertEqual(self._reserved(self.variant_a), 0)
+        self.assertEqual(Order.objects.get(pk=order.pk).status, Order.Status.CANCELLED)
+
+    def test_recent_payment_attempt_postpones_expiry(self, _gate):
+        order = self._single()
+        Order.objects.filter(pk=order.pk).update(created_at=timezone.now() - timedelta(hours=3))
+        self.client.post(f"/api/payments/{order.payment.id}/initiate/")
+        self.assertEqual(expire_unpaid_orders(), 0)
+        self.assertEqual(Order.objects.get(pk=order.pk).status, Order.Status.PENDING)
+
+    def test_multistore_cannot_be_cancelled_once_tour_started(self, _gate):
+        global_order = self._paid_global_order()
+        global_order.deliveries.update(status=Delivery.Status.PICKUP_PENDING)
+        self.client.force_authenticate(self.customer)
+        self.assertEqual(self.client.post(f"/api/orders/global-orders/{global_order.id}/cancel/").status_code, 400)
+        sub_order = global_order.orders.get(store=self.store_a)
+        self.client.force_authenticate(self.merchant_a)
+        self.assertEqual(self.client.post(f"/api/orders/{sub_order.id}/cancel/").status_code, 400)
+        self.assertEqual(Refund.objects.count(), 0)
+
+    def test_late_orange_notification_on_expired_payment_is_recorded(self, _gate):
+        order = self._single()
+        payment = order.payment
+        payment.method = "orange_money"
+        payment.metadata = {"orange_money_attempts": [{"order_id": "SM-X-1", "pay_token": "p1", "notif_token": "old-nt"}],
+                            "orange_money": {"order_id": "SM-X-2", "pay_token": "p2", "notif_token": "new-nt"}}
+        payment.status = Payment.Status.FAILED
+        payment.save()
+        with override_settings(PAYMENT_SANDBOX=False, PAYMENT_PROVIDERS={"wave": "", "orange_money": ""}):
+            response = APIClient().post(
+                "/api/payments/webhook/orange_money/",
+                data='{"status": "SUCCESS", "notif_token": "old-nt", "txnid": "MP9"}',
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200, response.data)
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.SUCCESS)

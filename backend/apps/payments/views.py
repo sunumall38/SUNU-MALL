@@ -2,6 +2,7 @@ import json
 import uuid
 from django.conf import settings
 from django.db import models, transaction
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -75,38 +76,51 @@ def _fulfill_payment(payment, changed_by=None):
     commande expirée), l'argent est bien encaissé mais la commande reste
     annulée et un remboursement est ouvert pour l'administration.
     """
+    from apps.orders.models import GlobalOrder
+
     with transaction.atomic():
+        # Ordre des verrous identique à l'annulation et à l'expiration :
+        # commande (ou achat global) d'abord, paiement ensuite.
+        if payment.global_order_id is not None:
+            GlobalOrder.objects.select_for_update().get(pk=payment.global_order_id)
+        elif payment.order_id is not None:
+            Order.objects.select_for_update().get(pk=payment.order_id)
         locked = Payment.objects.select_for_update().get(pk=payment.pk)
         if locked.status == Payment.Status.SUCCESS:
             payment.refresh_from_db()
             return False
         locked.mark_succeeded()
+
+        if _target_cancelled(locked):
+            Refund.objects.get_or_create(
+                payment=locked, order=None,
+                defaults={
+                    "amount": locked.amount,
+                    "reason": "Paiement reçu après l'annulation de la commande",
+                },
+            )
+            payment.refresh_from_db()
+            return True
+
+        if locked.order_id is not None:
+            locked.order.change_status(Order.Status.PAID, changed_by=changed_by)
+        elif locked.global_order_id is not None:
+            # Sous-commandes annulées pendant que le paiement était en attente
+            # (ex. boutique en rupture) : leur part est remboursée.
+            for sub_order in locked.global_order.orders.filter(status=Order.Status.CANCELLED):
+                Refund.objects.get_or_create(
+                    payment=locked, order=sub_order,
+                    defaults={"amount": sub_order.total_amount, "reason": "Sous-commande annulée avant paiement"},
+                )
     payment.refresh_from_db()
 
-    if _target_cancelled(payment):
-        Refund.objects.get_or_create(
-            payment=payment, order=None,
-            defaults={
-                "amount": payment.amount,
-                "reason": "Paiement reçu après l'annulation de la commande",
-            },
-        )
-        return True
-
+    # Effets externes (email, affectation du livreur) après validation.
     if payment.order_id is not None:
-        payment.order.change_status(Order.Status.PAID, changed_by=changed_by)
         _send_order_confirmation(payment.order)
         delivery = getattr(payment.order, "delivery", None)
         if delivery:
             delivery.auto_assign()
     elif payment.global_order_id is not None:
-        # Sous-commandes annulées pendant que le paiement était en attente
-        # (ex. boutique en rupture) : leur part est remboursée.
-        for sub_order in payment.global_order.orders.filter(status=Order.Status.CANCELLED):
-            Refund.objects.get_or_create(
-                payment=payment, order=sub_order,
-                defaults={"amount": sub_order.total_amount, "reason": "Sous-commande annulée avant paiement"},
-            )
         delivery = payment.global_order.deliveries.first()
         if delivery:
             delivery.auto_assign()
@@ -191,6 +205,9 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
             # payable (la commande, elle, n'a jamais quitté « en attente »).
             payment.status = Payment.Status.PENDING
             payment.save(update_fields=["status"])
+        # Dernière tentative de paiement : l'expiration des commandes non
+        # payées compte à partir d'ici, jamais pendant un paiement en cours.
+        Payment.objects.filter(pk=payment.pk).update(updated_at=timezone.now())
         try:
             gateway = get_gateway(payment.method)
             result = gateway.initiate(payment)
@@ -340,8 +357,10 @@ class PaymentWebhookView(APIView):
             from datetime import timedelta
             from django.utils import timezone
 
+            # Un paiement passé « échoué » (expiration, tentative abandonnée)
+            # peut encore être réglé dans un ancien onglet : il reste recherché.
             recent = Payment.objects.filter(
-                method="orange_money", status=Payment.Status.PENDING,
+                method="orange_money", status__in=[Payment.Status.PENDING, Payment.Status.FAILED],
                 created_at__gte=timezone.now() - timedelta(days=7),
             ).only("id", "metadata")
             for candidate in recent.iterator():

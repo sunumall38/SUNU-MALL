@@ -98,6 +98,11 @@ class Payment(models.Model):
         self.status = self.Status.SUCCESS
         self.paid_at = timezone.now()
         self.save(update_fields=["status", "paid_at"])
+        if self.order_id or self.global_order_id:
+            from apps.commissions.services import lock_wallets_for_orders
+
+            orders = [self.order] if self.order_id else list(self.global_order.orders.select_related("store"))
+            lock_wallets_for_orders(orders)
         if self.subscription_id:
             self._activate_subscription()
             from apps.commissions.services import (

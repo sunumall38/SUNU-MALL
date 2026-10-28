@@ -1077,18 +1077,19 @@ class Order(models.Model):
         except Delivery.DoesNotExist:
             return None
 
+    #: Mission multi-boutiques : dès « en route vers les boutiques », le
+    #: livreur peut déjà détenir certains colis (l'app livreur ne déclare pas
+    #: chaque collecte), donc plus d'annulation à partir de ce statut.
+    PRE_TOUR_DELIVERY_STATUSES = ("pending", "assigned", "accepted", "cancelled")
+
     def delivery_started(self):
-        """Vrai dès que le colis de CETTE boutique est récupéré par le livreur."""
+        """Vrai dès que le colis de cette commande peut être entre les mains du livreur."""
         delivery = self.current_delivery()
         if delivery is None:
             return False
-        if delivery.status not in self.PRE_PICKUP_DELIVERY_STATUSES:
-            return True
         if self.global_order_id:
-            return delivery.pickups.filter(
-                store_id=self.store_id, pickup_status=DeliveryPickup.Status.PICKED_UP,
-            ).exists()
-        return False
+            return delivery_tour_started(delivery)
+        return delivery.status not in self.PRE_PICKUP_DELIVERY_STATUSES
 
     def can_be_cancelled(self):
         return self.status in [self.Status.PENDING, self.Status.PAID] and not self.delivery_started()
@@ -1105,9 +1106,25 @@ class Order(models.Model):
         self.save()
 
     def change_status(self, new_status, changed_by=None):
+        """Change le statut, au plus une fois par transition.
+
+        L'écriture est conditionnelle (UPDATE … WHERE status = ancien) : si
+        une autre requête a changé le statut entre-temps (deux annulations
+        simultanées, expiration contre paiement), rien n'est refait — ni
+        historique, ni remise en stock en double. Retourne True si le statut
+        a réellement changé.
+        """
         old_status = self.status
-        if old_status == new_status:
-            return
+        # Une commande annulée est définitive : son stock a été rendu et un
+        # éventuel paiement tardif passe par un remboursement.
+        if old_status == new_status or old_status == self.Status.CANCELLED:
+            return False
+        changed = Order.objects.filter(pk=self.pk, status=old_status).update(
+            status=new_status, updated_at=timezone.now(),
+        )
+        if not changed:
+            self.refresh_from_db(fields=["status", "updated_at"])
+            return False
         self.status = new_status
         self.save()
         # Une commande annulée (ou expirée sans paiement) rend son stock : sans
@@ -1122,6 +1139,7 @@ class Order(models.Model):
         )
         from apps.analytics.models import SalesStatistic
         SalesStatistic.compute_for_store(self.store, self.created_at.date())
+        return True
 
     def notify_merchant_cancelled(self):
         from apps.monetization.models import Notification
@@ -1437,3 +1455,10 @@ class DeliveryPricingRule(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.base_fee} FCFA + {self.extra_pickup_fee}/point + {self.per_km_fee}/km)"
+
+
+def delivery_tour_started(delivery):
+    """Mission multi-boutiques commencée : tournée lancée ou un colis déjà collecté."""
+    if delivery.status not in Order.PRE_TOUR_DELIVERY_STATUSES:
+        return True
+    return delivery.pickups.filter(pickup_status=DeliveryPickup.Status.PICKED_UP).exists()

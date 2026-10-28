@@ -13,6 +13,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 BATCH_SIZE = 200
@@ -28,8 +29,12 @@ def expire_unpaid_orders(now=None):
     cutoff = now - timedelta(minutes=settings.ORDER_PAYMENT_TIMEOUT_MINUTES)
     expired = 0
 
+    # Le délai court depuis la dernière tentative de paiement (Payment.updated_at
+    # est rafraîchi à chaque `initiate`) : une session Wave ouverte à 1 h 55
+    # n'est jamais coupée à 2 h.
     singles = (
         Order.objects.filter(status=Order.Status.PENDING, global_order__isnull=True, created_at__lt=cutoff)
+        .filter(Q(payment__isnull=True) | Q(payment__updated_at__lt=cutoff))
         .exclude(payment__status=Payment.Status.SUCCESS)
         .values_list("pk", flat=True)[:BATCH_SIZE]
     )
@@ -38,6 +43,8 @@ def expire_unpaid_orders(now=None):
             order = Order.objects.select_for_update().get(pk=pk)
             payment = Payment.objects.select_for_update().filter(order=order).first()
             if order.status != Order.Status.PENDING or (payment and payment.status == Payment.Status.SUCCESS):
+                continue
+            if payment and payment.updated_at >= cutoff:
                 continue
             order.change_status(Order.Status.CANCELLED, changed_by=order.customer)
             if payment and payment.status == Payment.Status.PENDING:
@@ -50,14 +57,19 @@ def expire_unpaid_orders(now=None):
     globals_ = (
         GlobalOrder.objects.filter(status=GlobalOrder.Status.PENDING, created_at__lt=cutoff)
         .exclude(payments__status=Payment.Status.SUCCESS)
+        .exclude(payments__updated_at__gte=cutoff)
         .values_list("pk", flat=True)[:BATCH_SIZE]
     )
     for pk in list(globals_):
         with transaction.atomic():
+            # Achat global puis paiements, sous verrou (même ordre que la
+            # confirmation de paiement) : un paiement qui aboutit pendant
+            # l'expiration est soit vu ici, soit traité après elle.
             global_order = GlobalOrder.objects.select_for_update().get(pk=pk)
+            payments = list(Payment.objects.select_for_update().filter(global_order=global_order))
             if global_order.status != GlobalOrder.Status.PENDING:
                 continue
-            if global_order.payments.filter(status=Payment.Status.SUCCESS).exists():
+            if any(p.status == Payment.Status.SUCCESS or p.updated_at >= cutoff for p in payments):
                 continue
             for order in global_order.orders.exclude(status=Order.Status.CANCELLED):
                 order.change_status(Order.Status.CANCELLED, changed_by=global_order.customer)
