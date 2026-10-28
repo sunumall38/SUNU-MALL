@@ -75,7 +75,10 @@ Chaque tag `vX.Y.Z` correspond exactement à ce qui part en production.
    tag doit rester sur l'historique de `main`), puis fusionner `main` dans
    `develop`.
 4. Pousser le tag déclenche `.github/workflows/release.yml`, qui crée la
-   release GitHub avec les notes du CHANGELOG. La fusion sur `main` déclenche
+   release GitHub avec les notes du CHANGELOG. Sans terminal, on peut aussi
+   créer le tag depuis GitHub : *Releases → Draft a new release*, tag
+   `vX.Y.Z` (« Create new tag on publish »), cible `main`, *Publish* — le
+   workflow remplace alors le texte par les notes du CHANGELOG. La fusion sur `main` déclenche
    le déploiement Render et Cloudflare Pages.
 
 ### Correctif urgent

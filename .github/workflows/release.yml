@@ -38,11 +38,18 @@ jobs:
             echo "Voir CHANGELOG.md." > release-notes.md
           fi
 
-      - name: Créer la release GitHub
+      - name: Créer (ou compléter) la release GitHub
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" --title "SUNU MALL $GITHUB_REF_NAME" \
-            --notes-file release-notes.md $prerelease
+          # Release déjà créée depuis le site GitHub (bouton « Create a new
+          # release », qui crée aussi le tag) : on y met les notes du CHANGELOG.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "SUNU MALL $GITHUB_REF_NAME" \
+              --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "SUNU MALL $GITHUB_REF_NAME" \
+              --notes-file release-notes.md $prerelease
+          fi
