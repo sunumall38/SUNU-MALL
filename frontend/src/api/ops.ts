@@ -88,7 +88,7 @@ export interface AlertItem {
 }
 
 export async function getHealth(): Promise<HealthStatus> {
-  return apiGet<HealthStatus>("/health/");
+  return apiGet<HealthStatus>("/ops/health/");
 }
 
 export async function listIncidents(params?: { page?: number; status?: string }) {

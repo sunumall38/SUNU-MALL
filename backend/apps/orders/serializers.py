@@ -393,7 +393,14 @@ class CheckoutSerializer(serializers.Serializer):
     address = serializers.UUIDField()
     delivery_type = serializers.ChoiceField(choices=["pickup", "standard", "express"], default="standard")
     payment_method = serializers.ChoiceField(choices=["wave", "orange_money", "card"])
-    items = CheckoutItemInputSerializer(many=True)
+    items = CheckoutItemInputSerializer(many=True, allow_empty=False)
+
+    def validate_payment_method(self, value):
+        from apps.payments.gateways import is_method_available
+
+        if not is_method_available(value):
+            raise serializers.ValidationError("Ce moyen de paiement n'est pas disponible.")
+        return value
 
 
 class DeliveryQuoteSerializer(serializers.Serializer):

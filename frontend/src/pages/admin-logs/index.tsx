@@ -34,7 +34,7 @@ export default function AdminLogsPage() {
       <Card>
         <div className="flex flex-wrap items-center gap-3">
           <SearchInput placeholder="Filtrer par message ou Request ID..." value={filter} onChange={(e) => setFilter(e.target.value)} onClear={() => setFilter("")} className="max-w-md" />
-          <select value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
+          <select aria-label="Niveau de journal" value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg border border-border bg-white px-3 py-2 text-sm">
             <option value="">Tous les niveaux</option>
             <option value="INFO">INFO</option>
             <option value="WARNING">WARNING</option>

@@ -148,6 +148,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {totalItems != null && <span>{totalItems} résultat{totalItems > 1 ? "s" : ""}</span>}
           {pageSizeOptions && onPageSizeChange && (
             <select
+              aria-label="Lignes par page"
               value={pageSize}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
               className="rounded border border-border bg-white px-1.5 py-0.5 text-xs"

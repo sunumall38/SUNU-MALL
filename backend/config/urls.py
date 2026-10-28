@@ -6,10 +6,11 @@ on les inclut ici sous un préfixe clair.
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
-from apps.ops.views import HealthView
+from apps.ops.views import HealthView, VersionView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/version/", VersionView.as_view(), name="version"),
     path("api/auth/", include("apps.auth.urls")),
     path("api/users/", include("apps.users.urls")),
     path("api/catalog/", include("apps.catalog.urls")),

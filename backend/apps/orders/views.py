@@ -15,6 +15,7 @@ from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, No
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
+from .models import delivery_tour_started
 from .models import (
     Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryPickup,
     DeliveryPricingRule, DeliveryTracking, Driver, GlobalOrder, Order,
@@ -149,6 +150,10 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # Libère d'abord le stock des commandes abandonnées sans paiement.
+        from .expiry import expire_unpaid_orders
+        expire_unpaid_orders()
+
         if data.get("store"):
             return self._checkout_single(request, data)
 
@@ -157,6 +162,8 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def _checkout_single(self, request, data):
         store = get_object_or_404(Store, pk=data["store"])
+        if store.status != Store.Status.ACTIVE:
+            raise ValidationError(f"La boutique « {store.name} » est momentanément indisponible.")
         address = get_object_or_404(Address, pk=data["address"], user=request.user)
         delivery_fee = compute_delivery_fee(store, address, data["delivery_type"])
 
@@ -186,6 +193,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                     pk=item["product_variant"],
                     product__store=store,
                 )
+                if variant.product.status != Product.Status.ACTIVE:
+                    raise ValidationError(f"Le produit « {variant.product.name} » n'est plus disponible.")
                 inventory = getattr(variant, "inventory", None)
                 if inventory is not None and not inventory.reserve(item["quantity"]):
                     raise ValidationError(
@@ -364,7 +373,14 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        """Annule une commande encore annulable (client, boutique concernée ou admin)."""
+        """Annule une commande encore annulable (client, boutique concernée ou admin).
+
+        Possible tant que le colis n'a pas quitté la boutique. Le stock est
+        rendu (Order.change_status), la course arrêtée, et un remboursement
+        ouvert si la commande était déjà payée. Pour une sous-commande d'un
+        achat multi-boutiques, seule la part de cette boutique est remboursée ;
+        si c'était la dernière sous-commande active, tout l'achat est annulé.
+        """
         order = self.get_object()
         user = request.user
         is_allowed = (
@@ -374,27 +390,77 @@ class OrderViewSet(viewsets.ModelViewSet):
         )
         if not is_allowed:
             raise PermissionDenied("Vous ne pouvez annuler que vos propres commandes.")
-        if not order.can_be_cancelled():
-            raise ValidationError(f"Une commande au statut « {order.status} » ne peut plus être annulée.")
 
-        order.change_status(Order.Status.CANCELLED)
-        delivery = getattr(order, "delivery", None)
-        if delivery and delivery.status in [Delivery.Status.PENDING, Delivery.Status.ASSIGNED]:
-            delivery.cancel()
-        order.notify_merchant_cancelled()
-
-        payment = getattr(order, "payment", None)
-        if payment and payment.status == Payment.Status.SUCCESS:
-            # La commande était déjà payée : sans ça, l'argent restait
-            # marqué "encaissé" sans que rien n'indique qu'il faut le
-            # rendre. Le remboursement est créé "pending" ici ; un admin le
-            # traite ensuite (voir RefundViewSet.process) — un remboursement
-            # Wave/Orange Money/carte n'est pas instantané.
-            Refund.objects.create(
-                payment=payment, amount=payment.amount, reason="Commande annulée par le client",
-            )
-
+        by_merchant = order.store.owner_id == user.id and order.customer_id != user.id
+        with transaction.atomic():
+            # Verrous dans un ordre fixe (achat global → commande → paiement),
+            # le même que la confirmation de paiement et l'expiration : deux
+            # annulations simultanées, ou une annulation pendant un paiement,
+            # s'exécutent l'une après l'autre au lieu de rembourser deux fois.
+            if order.global_order_id:
+                GlobalOrder.objects.select_for_update().get(pk=order.global_order_id)
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            list(Payment.objects.select_for_update().filter(
+                models.Q(order_id=order.pk) | models.Q(global_order_id=order.global_order_id)
+                if order.global_order_id else models.Q(order_id=order.pk)
+            ))
+            if not order.can_be_cancelled():
+                if order.delivery_started():
+                    raise ValidationError("Le colis a déjà été remis au livreur : la commande ne peut plus être annulée.")
+                raise ValidationError(f"Une commande au statut « {order.status} » ne peut plus être annulée.")
+            if not order.change_status(Order.Status.CANCELLED, changed_by=user):
+                raise ValidationError("Cette commande vient d'être modifiée : actualisez la page.")
+            if order.global_order_id:
+                cancel_store_in_global_order(order, user, by_merchant=by_merchant)
+            else:
+                delivery = getattr(order, "delivery", None)
+                if delivery and delivery.status in Order.PRE_PICKUP_DELIVERY_STATUSES:
+                    delivery.cancel(user=user)
+                payment = Payment.objects.filter(order_id=order.pk).first()
+                if payment and payment.status == Payment.Status.SUCCESS:
+                    # Créé « en attente » ; un admin le traite (RefundViewSet.process).
+                    Refund.objects.create(
+                        payment=payment, amount=payment.amount,
+                        reason="Commande annulée par la boutique" if by_merchant else "Commande annulée par le client",
+                    )
+        if not by_merchant:
+            order.notify_merchant_cancelled()
+        order.refresh_from_db()
         return Response(OrderSerializer(order).data)
+
+
+def cancel_store_in_global_order(order, user, by_merchant=False):
+    """Suites de l'annulation d'UNE sous-commande d'un achat multi-boutiques.
+
+    - le point de collecte de cette boutique est retiré de la mission ;
+    - si le paiement global est encaissé, la part de la boutique est remboursée ;
+    - s'il ne reste aucune sous-commande active, l'achat entier est annulé
+      (course arrêtée, frais de livraison remboursés).
+    """
+    global_order = order.global_order
+    delivery = global_order.deliveries.first()
+    if delivery is not None:
+        delivery.pickups.filter(store_id=order.store_id).exclude(
+            pickup_status=DeliveryPickup.Status.PICKED_UP
+        ).delete()
+    payment = global_order.payments.filter(status=Payment.Status.SUCCESS).first()
+    reason = "Boutique annulée par le vendeur" if by_merchant else "Boutique annulée par le client"
+    if payment:
+        Refund.objects.get_or_create(
+            payment=payment, order=order,
+            defaults={"amount": order.total_amount, "reason": reason},
+        )
+    remaining = global_order.orders.exclude(status=Order.Status.CANCELLED)
+    if not remaining.exists():
+        if delivery is not None and delivery.status in Order.PRE_PICKUP_DELIVERY_STATUSES:
+            delivery.cancel(user=user)
+        global_order.status = GlobalOrder.Status.CANCELLED
+        global_order.save(update_fields=["status"])
+        if payment and global_order.delivery_fee > 0:
+            Refund.objects.create(
+                payment=payment, amount=global_order.delivery_fee,
+                reason="Frais de livraison d'un achat entièrement annulé",
+            )
 
 
 class DriverViewSet(viewsets.ModelViewSet):
@@ -603,7 +669,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
     def _partner_for(self, user):
         return DeliveryPartner.objects.filter(user=user).first()
 
-    @action(detail=True, methods=["post"], url_path="suggest")
+    @action(detail=True, methods=["get", "post"], url_path="suggest")
     def suggest_drivers(self, request, pk=None):
         """Renvoie les meilleurs livreurs candidats pour cette livraison
         (disponibles, non suspendus, proches de la boutique) — utilisé par
@@ -755,6 +821,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
         done, total, all_done = delivery.pickups_status()
+        confirmation_code = None
         if all_done and delivery.status in (
             Delivery.Status.ASSIGNED, Delivery.Status.ACCEPTED, Delivery.Status.PICKUP_PENDING,
         ):
@@ -762,12 +829,18 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
                 Delivery.Status.PICKED_UP, user=user, actor_role="driver",
                 comment="Tous les colis sont récupérés.",
             )
+            # Même règle qu'une course simple : le code de remise est créé au
+            # moment où le livreur a tous les colis, sinon le client ne peut
+            # jamais confirmer la réception.
+            confirmation_code = delivery.generate_confirmation_otp()
             self._notify_customer_pickup(delivery)
             delivery.broadcast_status("Tous les colis sont récupérés : en route vers vous !")
 
         data = DeliverySerializer(delivery).data
         data["pickups_collected"] = done
         data["pickups_total"] = total
+        if confirmation_code is not None:
+            data["confirmation_code"] = confirmation_code
         return Response(data)
 
     @action(detail=True, methods=["post"], url_path="status")
@@ -819,6 +892,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
                 f"Transition invalide de « {delivery.status} » vers « {new_status} »."
             )
 
+        previous_status = delivery.status
         delivery.status = new_status
         confirmation_code = None
         if new_status == Delivery.Status.PICKED_UP:
@@ -828,11 +902,10 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         self._stamp(delivery, new_status)
         delivery.save()
         delivery.record_event("status_changed", user=user, actor_role="driver" if not is_admin else "admin",
-                              previous_status=delivery.status, new_status=new_status)
+                              previous_status=previous_status, new_status=new_status)
 
         if new_status == Delivery.Status.DELIVERED:
-            for order in delivery.linked_orders():
-                order.change_status(Order.Status.DELIVERED, changed_by=user)
+            delivery.mark_orders_delivered(user)
 
         status_messages = {
             Delivery.Status.ASSIGNED: "Un livreur vous est affecté.",
@@ -874,16 +947,20 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         delivery = get_object_or_404(Delivery, pk=pk)
         user = request.user
         is_assigned_driver = delivery.driver and delivery.driver.user_id == user.id
-        if not user.is_admin() and not is_assigned_driver:
+        is_admin = user.is_admin()
+        if not is_admin and not is_assigned_driver:
             raise PermissionDenied("Seul le livreur affecté peut signaler un échec.")
         if delivery.status not in [
             Delivery.Status.OUT_FOR_DELIVERY, Delivery.Status.IN_TRANSIT, Delivery.Status.PICKED_UP,
         ]:
             raise ValidationError("Échec impossible dans l'état actuel de la course.")
-        delivery.mark_failed(
-            user=user, actor_role="driver" if not is_admin else "admin",
-            reason=request.data.get("reason"), comment=request.data.get("comment", ""),
-        )
+        try:
+            delivery.mark_failed(
+                user=user, actor_role="driver" if not is_admin else "admin",
+                reason=request.data.get("reason"), comment=request.data.get("comment", ""),
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc))
         return Response(DeliverySerializer(delivery).data)
 
     @action(detail=True, methods=["post"], url_path="return")
@@ -954,7 +1031,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         is_allowed = (customer is not None and customer.id == user.id) or user.is_admin()
         if not is_allowed:
             raise PermissionDenied("Seul le destinataire de la commande peut confirmer la réception.")
-        if delivery.status != Delivery.Status.PICKED_UP:
+        if delivery.status not in Delivery.HANDOVER_STATUSES:
             raise ValidationError("La livraison doit être en cours (colis récupéré) pour être confirmée.")
 
         code = request.data.get("code", "")
@@ -968,13 +1045,16 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
                 detail += " Trop d'essais : demandez au livreur de régénérer un code."
             raise ValidationError(detail)
 
+        previous_status = delivery.status
         delivery.status = Delivery.Status.DELIVERED
         delivery.delivered_at = timezone.now()
         delivery.confirmation_otp_hash = ""
         delivery.confirmation_otp_expires_at = None
         delivery.save()
-        for order in delivery.linked_orders():
-            order.change_status(Order.Status.DELIVERED, changed_by=user)
+        delivery.record_event("status_changed", user=user, actor_role="customer",
+                              previous_status=previous_status, new_status=Delivery.Status.DELIVERED,
+                              comment="Réception confirmée par le code du client.")
+        delivery.mark_orders_delivered(user)
         delivery.broadcast_status("Livraison confirmée par le client. Bonne réception !")
         return Response(DeliverySerializer(delivery).data)
 
@@ -987,7 +1067,7 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         is_assigned_driver = delivery.driver and delivery.driver.user_id == user.id
         if not user.is_admin() and not is_assigned_driver:
             raise PermissionDenied("Seul le livreur affecté peut régénérer un code.")
-        if delivery.status != Delivery.Status.PICKED_UP:
+        if delivery.status not in Delivery.HANDOVER_STATUSES:
             raise ValidationError("Aucun code à régénérer dans l'état actuel de la course.")
 
         code = delivery.generate_confirmation_otp()
@@ -1066,17 +1146,25 @@ class DeliveryEventStreamView(viewsets.ViewSet):
         data = json.dumps({"event": event, **payload}, default=str)
         return f"data: {data}\n\n"
 
+    #: Durée maximale d'une connexion de suivi. Chaque flux ouvert occupe un
+    #: fil du serveur : un flux infini épuisait les 8 fils de l'offre
+    #: gratuite et bloquait toute l'API. Le navigateur (EventSource) se
+    #: reconnecte de lui-même à la fermeture, après `retry` ms.
+    STREAM_MAX_SECONDS = 50
+    STREAM_RETRY_MS = 3000
+
     def _event_stream(self, delivery, pubsub):
+        deadline = time.monotonic() + self.STREAM_MAX_SECONDS
         # 1. Instantané de connexion : l'écran se positionne tout de suite
         #    sans attendre l'événement suivant.
-        yield self._sse("snapshot", delivery.event_payload())
+        yield f"retry: {self.STREAM_RETRY_MS}\n" + self._sse("snapshot", delivery.event_payload())
         if pubsub is None:
-            while True:  # Redis coupé : keep-alives, le client bascule en polling.
-                yield ": keep-alive\n\n"
-                time.sleep(15)
+            # Redis coupé : le client se reconnecte et retombe sur l'instantané.
+            return
         try:
-            while True:
-                message = pubsub.get_message(ignore_subscribe_messages=True, timeout=15)
+            while time.monotonic() < deadline:
+                wait = max(1, min(15, deadline - time.monotonic()))
+                message = pubsub.get_message(ignore_subscribe_messages=True, timeout=wait)
                 if message is None:
                     yield ": keep-alive\n\n"
                     continue
@@ -1124,7 +1212,9 @@ class GlobalOrderViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_admin():
             return GlobalOrder.objects.all()
         if user.has_role(Role.RoleName.MERCHANT):
-            return GlobalOrder.objects.filter(orders__store__owner=user).distinct()
+            # Un commerçant voit les achats où figure sa boutique ET ses
+            # propres achats de client.
+            return self.get_queryset_for_merchant(user)
         return GlobalOrder.objects.filter(customer=user)
 
     @action(detail=True, methods=["post"])
@@ -1139,39 +1229,44 @@ class GlobalOrderViewSet(viewsets.ReadOnlyModelViewSet):
         user = request.user
         if not (global_order.customer_id == user.id or user.is_admin()):
             raise PermissionDenied("Vous ne pouvez annuler que vos propres commandes.")
-        if global_order.status == GlobalOrder.Status.CANCELLED:
-            raise ValidationError("Cette commande a déjà été annulée.")
-
-        delivery = global_order.deliveries.first()
-        if delivery and delivery.status in (
-            Delivery.Status.DELIVERED, Delivery.Status.DELIVERY_FAILED,
-            Delivery.Status.CUSTOMER_UNAVAILABLE, Delivery.Status.RETURNED,
-            Delivery.Status.CANCELLED,
-        ):
-            raise ValidationError(
-                f"La course est au statut « {delivery.status} » : annulation impossible."
-            )
 
         with transaction.atomic():
-            for order in global_order.orders.all():
-                if order.can_be_cancelled():
-                    order.change_status(Order.Status.CANCELLED, changed_by=user)
-            if delivery and delivery.status in (
-                Delivery.Status.PENDING, Delivery.Status.ASSIGNED, Delivery.Status.ACCEPTED,
-            ):
+            # Même ordre de verrous que la confirmation de paiement.
+            global_order = GlobalOrder.objects.select_for_update().get(pk=global_order.pk)
+            list(Payment.objects.select_for_update().filter(global_order_id=global_order.pk))
+            if global_order.status == GlobalOrder.Status.CANCELLED:
+                raise ValidationError("Cette commande a déjà été annulée.")
+            delivery = global_order.deliveries.first()
+            if delivery is not None and delivery_tour_started(delivery):
+                raise ValidationError(
+                    "Des colis ont déjà été remis au livreur : la commande ne peut plus être annulée. "
+                    "Contactez le support pour un retour."
+                )
+
+            for order in global_order.orders.exclude(status=Order.Status.CANCELLED):
+                order.change_status(Order.Status.CANCELLED, changed_by=user)
+            if delivery is not None:
                 delivery.cancel(user=user)
             global_order.status = GlobalOrder.Status.CANCELLED
             global_order.save(update_fields=["status"])
 
-        payment = global_order.payments.filter(status=Payment.Status.SUCCESS).first()
-        if payment:
-            Refund.objects.create(
-                payment=payment,
-                amount=payment.amount,
-                reason="Commande globale annulée",
-            )
+            payment = global_order.payments.filter(status=Payment.Status.SUCCESS).first()
+            if payment:
+                # Rembourse ce qui n'est pas déjà couvert par un remboursement
+                # de sous-commande (boutique annulée plus tôt).
+                already = payment.refunds.exclude(status=Refund.Status.REJECTED).aggregate(
+                    total=models.Sum("amount")
+                )["total"] or Decimal("0")
+                remaining = payment.amount - already
+                if remaining > 0:
+                    Refund.objects.create(
+                        payment=payment, amount=remaining, reason="Commande globale annulée",
+                    )
 
         return Response(GlobalOrderSerializer(global_order).data)
+
+    def get_queryset_for_merchant(self, user):
+        return GlobalOrder.objects.filter(models.Q(orders__store__owner=user) | models.Q(customer=user)).distinct()
 
 
 class TrackOrderView(APIView):

@@ -122,6 +122,7 @@ export default function AdminUsersPage() {
                     ))}
                     {availableRoles.length > 0 && (
                       <select
+                        aria-label="Attribuer un rôle"
                         value=""
                         disabled={busyKey === `${user.id}-assign`}
                         onChange={(e) => handleAssign(user.id, Number(e.target.value))}

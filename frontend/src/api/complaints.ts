@@ -24,3 +24,13 @@ export function replyToTicket(id: string, body: string) {
 export function closeTicket(id: string) {
   return apiPost<SupportTicket>(`/complaints/tickets/${id}/close/`);
 }
+/** Formulaire public « Contactez-nous » (enregistré et transmis à l'équipe). */
+export function sendContactMessage(payload: {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  website?: string;
+}) {
+  return apiPost<{ message: string }>("/complaints/contact/", payload, { auth: false });
+}

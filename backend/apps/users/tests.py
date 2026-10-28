@@ -279,3 +279,37 @@ class CreateAdminCommandTests(TestCase):
         user = User.objects.get(email='admin.all@sunumall.com')
         for role in Role.ADMIN_ROLES:
             self.assertTrue(user.has_role(role), f"rôle {role} manquant")
+
+
+class BootstrapAdminTests(TestCase):
+    def test_creates_admin_once_without_logging_password(self):
+        import io
+        import os
+        from unittest import mock
+
+        from django.core.management import call_command
+
+        env = {
+            "ADMIN_BOOTSTRAP_EMAIL": "boss@sunumall.test",
+            "ADMIN_BOOTSTRAP_PHONE": "770001122",
+            "ADMIN_BOOTSTRAP_PASSWORD": "MotDePasse!2026",
+        }
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env):
+            call_command("bootstrap_admin", stdout=out)
+            user = User.objects.get(email="boss@sunumall.test")
+            user.set_password("Change!2026x")
+            user.save()
+            call_command("bootstrap_admin", stdout=out)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("Change!2026x"))
+        self.assertTrue(user.is_admin())
+        self.assertNotIn("MotDePasse!2026", out.getvalue())
+
+    def test_does_nothing_without_variables(self):
+        import io
+
+        from django.core.management import call_command
+
+        call_command("bootstrap_admin", stdout=io.StringIO())
+        self.assertFalse(User.objects.filter(email__iexact="boss@sunumall.test").exists())

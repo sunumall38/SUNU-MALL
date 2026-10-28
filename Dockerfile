@@ -29,6 +29,7 @@ ENV PYTHONUNBUFFERED=1
 
 COPY backend/ .
 COPY railway-entrypoint.sh /app/railway-entrypoint.sh
+COPY VERSION /app/VERSION
 
 RUN DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py collectstatic --noinput \
     && chmod +x /app/railway-entrypoint.sh

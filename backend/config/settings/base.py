@@ -206,6 +206,12 @@ PAYMENT_PROVIDERS = {
     "orange_money": config("ORANGE_MONEY_WEBHOOK_SECRET", default=""),
 }
 
+# --- Commandes non payées ---
+# Une commande réserve son stock ; sans paiement au bout de ce délai elle est
+# annulée et le stock rendu (apps/orders/expiry.py). Supérieur à la durée de
+# vie d'une session Wave (30 min) pour ne jamais couper un paiement en cours.
+ORDER_PAYMENT_TIMEOUT_MINUTES = config("ORDER_PAYMENT_TIMEOUT_MINUTES", default=120, cast=int)
+
 # --- Confirmation de livraison par code OTP ---
 # Le client valide la réception d'une commande avec un code à 6 chiffres
 # que le livreur lui remet physiquement. Validité courte et essais limités.
@@ -249,6 +255,10 @@ TWILIO_HTTP_TIMEOUT_SECONDS = config("TWILIO_HTTP_TIMEOUT_SECONDS", default=10, 
 GUEST_LOGIN_LINK_TTL_MINUTES = config("GUEST_LOGIN_LINK_TTL_MINUTES", default=15, cast=int)
 # Délai minimal entre deux envois au même compte (anti-inondation de boîte mail).
 GUEST_LOGIN_LINK_COOLDOWN_SECONDS = config("GUEST_LOGIN_LINK_COOLDOWN_SECONDS", default=120, cast=int)
+# Lien « mot de passe oublié » : usage unique, courte durée, un envoi au plus
+# par période de refroidissement (la route est publique).
+PASSWORD_RESET_TTL_MINUTES = config("PASSWORD_RESET_TTL_MINUTES", default=30, cast=int)
+PASSWORD_RESET_COOLDOWN_SECONDS = config("PASSWORD_RESET_COOLDOWN_SECONDS", default=120, cast=int)
 
 # --- Affectation des courses ---
 # Un livreur ne reçoit une commande que s'il est à moins de ce rayon (km) de
@@ -289,10 +299,16 @@ REST_FRAMEWORK = {
 AUTH_ANON_THROTTLE_RATE = "10/min"
 
 # DRF Spectacular (Swagger/OpenAPI)
+# Version publiée (fichier VERSION) et commit déployé — voir config/version.py.
+from config.version import read_commit, read_version  # noqa: E402
+
+APP_VERSION = read_version()
+APP_COMMIT = read_commit()
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "SUNU MALL API",
     "DESCRIPTION": "Marketplace sénégalais — API REST",
-    "VERSION": "1.0.0",
+    "VERSION": APP_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
 }
@@ -403,6 +419,8 @@ DEFAULT_FROM_EMAIL = EMAIL_FROM_CONFIGURED or "SUNU MALL <noreply@sunumall.com>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Boîte de l'équipe marketplace qui reçoit les nouvelles demandes de boutique.
 ADMIN_NOTIFICATION_EMAIL = config("ADMIN_NOTIFICATION_EMAIL", default="").strip()
+# Boîte qui reçoit les messages du formulaire de contact (défaut : ADMIN_NOTIFICATION_EMAIL).
+CONTACT_EMAIL = config("CONTACT_EMAIL", default="").strip()
 
 # --- Paiement (Wave / Orange Money) ---
 # PAYMENT_SANDBOX doit être explicitement mis à False en production ET en

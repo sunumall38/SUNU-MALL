@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { formatDate } from "@/lib/utils";
 import { DELIVERY_FAILURE_REASONS, DELIVERY_RETURN_REASONS, deliveryStatusLabel } from "@/lib/delivery";
 import type { DeliveryStatus } from "@/types";
+import { isHandoverStatus } from "@/lib/delivery";
 
 const DeliveryMap = lazy(() => import("@/components/marketplace/DeliveryMap").then((m) => ({ default: m.DeliveryMap })));
 
@@ -338,7 +339,7 @@ export default function DriverDeliveryPage() {
           </div>
         )}
 
-        {delivery.status === "picked_up" && (
+        {isHandoverStatus(delivery.status) && (
           <div className="flex flex-col gap-3 rounded-lg border border-accent bg-muted/40 p-3">
             <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
               <KeyRound className="h-4 w-4 text-orange" />

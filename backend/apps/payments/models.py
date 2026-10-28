@@ -98,6 +98,11 @@ class Payment(models.Model):
         self.status = self.Status.SUCCESS
         self.paid_at = timezone.now()
         self.save(update_fields=["status", "paid_at"])
+        if self.order_id or self.global_order_id:
+            from apps.commissions.services import lock_wallets_for_orders
+
+            orders = [self.order] if self.order_id else list(self.global_order.orders.select_related("store"))
+            lock_wallets_for_orders(orders)
         if self.subscription_id:
             self._activate_subscription()
             from apps.commissions.services import (
@@ -126,8 +131,12 @@ class Payment(models.Model):
                 self.global_order.save(update_fields=["status"])
         else:
             Transaction.create_for_payment(self)
-            from apps.commissions.services import settle_commission_for_order
-            settle_commission_for_order(self.order)
+            # Commande annulée avant que le paiement n'arrive : l'argent est
+            # encaissé puis remboursé (voir _fulfill_payment), aucune vente
+            # n'est ventilée au vendeur.
+            if self.order.status != Order.Status.CANCELLED:
+                from apps.commissions.services import settle_commission_for_order
+                settle_commission_for_order(self.order)
 
     def _activate_subscription(self):
         subscription = self.subscription
@@ -177,6 +186,10 @@ class Payment(models.Model):
         invoice.mark_paid()
 
     def mark_failed(self):
+        # Un paiement réglé ou remboursé ne repasse jamais en échec (webhook
+        # tardif ou rejoué dans le désordre).
+        if self.status in (self.Status.SUCCESS, self.Status.REFUNDED, self.Status.FAILED):
+            return
         self.status = self.Status.FAILED
         self.save()
         if self.subscription_id:
@@ -269,6 +282,12 @@ class Refund(models.Model):
 
     id = models.AutoField(primary_key=True)
     payment = models.ForeignKey(Payment, on_delete=models.CASCADE, related_name='refunds')
+    # Sous-commande remboursée quand le paiement couvre une commande
+    # multi-boutiques et qu'une seule boutique est annulée (remboursement
+    # partiel). Vide : remboursement de tout ce qui reste du paiement.
+    order = models.ForeignKey(
+        Order, on_delete=models.SET_NULL, null=True, blank=True, related_name='refunds'
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
@@ -293,15 +312,28 @@ class Refund(models.Model):
         self.save()
 
         payment = self.payment
-        payment.status = Payment.Status.REFUNDED
-        payment.save(update_fields=["status"])
+        refunded_total = payment.refunds.filter(status=self.Status.COMPLETED).aggregate(
+            total=models.Sum("amount")
+        )["total"] or 0
+        fully_refunded = refunded_total >= payment.amount
+        if fully_refunded:
+            payment.status = Payment.Status.REFUNDED
+            payment.save(update_fields=["status"])
 
-        for original in payment.transactions.exclude(type=Transaction.Type.REFUND):
+        if self.is_partial():
             Transaction.objects.create(
                 payment=payment, type=Transaction.Type.REFUND,
-                payee_type=original.payee_type, payee_id=original.payee_id,
-                amount=-original.amount,
+                payee_type="order" if self.order_id else "global_order",
+                payee_id=self.order_id or payment.global_order_id,
+                amount=-self.amount,
             )
+        else:
+            for original in payment.transactions.exclude(type=Transaction.Type.REFUND):
+                Transaction.objects.create(
+                    payment=payment, type=Transaction.Type.REFUND,
+                    payee_type=original.payee_type, payee_id=original.payee_id,
+                    amount=-original.amount,
+                )
 
         # Commission : contre-passe la vente (fonds vendeur + commission plateforme).
         from apps.commissions.services import reverse_commission_for_refund
@@ -309,22 +341,41 @@ class Refund(models.Model):
 
         self._notify_customer()
 
+    def is_partial(self):
+        """Vrai si le remboursement ne couvre qu'une partie du paiement."""
+        return bool(self.order_id) or self.amount < self.payment.amount
+
+    def refunded_orders(self):
+        """Sous-commandes dont la vente est contre-passée par ce remboursement."""
+        payment = self.payment
+        if self.order_id:
+            return [self.order]
+        if payment.order_id:
+            return [payment.order]
+        if payment.global_order_id:
+            return list(payment.global_order.orders.all())
+        return []
+
     def _notify_customer(self):
         from apps.monetization.models import Notification
 
-        order = self.payment.order
-        if not order:
+        payment = self.payment
+        order = self.order or payment.order
+        target = order or payment.global_order
+        if target is None:
             return
-        subject = f"Remboursement traité — {order.store.name}"
+        customer = target.customer
+        label = order.store.name if order else "SUNU MALL"
+        subject = f"Remboursement traité — {label}"
         message = (
-            f"Bonjour {order.customer.first_name or order.customer.email},\n\n"
-            f"Le remboursement de {self.amount} FCFA pour votre commande n°{str(order.id)[:8]} "
+            f"Bonjour {customer.first_name or customer.email},\n\n"
+            f"Le remboursement de {self.amount} FCFA pour votre commande n°{str(target.id)[:8]} "
             "a bien été traité.\n\nMerci de votre compréhension."
         )
         notification = Notification.objects.create(
-            user=order.customer, channel=Notification.Channel.EMAIL,
+            user=customer, channel=Notification.Channel.EMAIL,
             subject=subject, message=message,
-            metadata={"refund_id": str(self.id), "order_id": str(order.id)},
+            metadata={"refund_id": str(self.id), "order_id": str(target.id)},
         )
         notification.send()
 

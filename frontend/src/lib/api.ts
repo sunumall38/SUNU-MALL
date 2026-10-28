@@ -27,6 +27,11 @@ export function apiErrorMessage(err: unknown, fallback = "Une erreur est survenu
   if (!(err instanceof ApiError)) return "Erreur réseau.";
   const data = err.data;
   if (typeof data === "string") return data;
+  // ValidationError("…") de DRF : le corps est une simple liste de messages.
+  if (Array.isArray(data)) {
+    const texts = data.filter((v): v is string => typeof v === "string");
+    return texts.length ? texts.join(" ") : fallback;
+  }
   if (data && typeof data === "object") {
     const record = data as Record<string, unknown>;
     const read = (value: unknown): string | null => {
@@ -37,7 +42,7 @@ export function apiErrorMessage(err: unknown, fallback = "Une erreur est survenu
       }
       return null;
     };
-    for (const key of ["detail", "non_field_errors"]) {
+    for (const key of ["detail", "error", "non_field_errors"]) {
       const text = read(record[key]);
       if (text) return text;
     }

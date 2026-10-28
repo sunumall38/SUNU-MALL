@@ -19,6 +19,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.kyc.utils import seller_kyc_verified
@@ -138,7 +139,7 @@ def settle_commission_for_order(order):
             commission_amount=commission, seller_amount=seller_amount,
         )
 
-        wallet = SellerWallet.get_or_create_for(seller)
+        wallet = _locked_wallet(seller)
         available_before, pending_before = wallet.available_balance, wallet.pending_balance
         wallet.pending_balance = pending_before + seller_amount
         wallet.total_earned = wallet.total_earned + seller_amount
@@ -151,7 +152,7 @@ def settle_commission_for_order(order):
             description=f"Vente {order.total_amount} FCFA - commission {commission} FCFA",
         )
 
-        platform = PlatformWallet.singleton()
+        platform = _locked_platform()
         platform.balance = platform.balance + commission
         platform.total_commissions = platform.total_commissions + commission
         platform.save()
@@ -168,7 +169,7 @@ def settle_commission_for_order(order):
 def register_subscription_revenue(subscription, amount):
     """Trace le revenu plateforme d'un abonnement payé (spec §22)."""
     with transaction.atomic():
-        platform = PlatformWallet.singleton()
+        platform = _locked_platform()
         platform.balance = platform.balance + amount
         platform.total_subscriptions = platform.total_subscriptions + amount
         platform.save()
@@ -182,34 +183,46 @@ def register_subscription_revenue(subscription, amount):
 # ------------------------------------------------------------------ remboursement (§20-§21)
 
 def reverse_commission_for_refund(refund):
-    """Contre-passe la vente d'un remboursement traité.
+    """Contre-passe la vente de chaque commande couverte par un remboursement traité.
 
     Le vendeur doit rendre le montant net déjà crédité ; la plateforme rend sa
     commission. Si le vendeur a déjà retiré les fonds, `available_balance`
-    devient négatif (dette du vendeur, §21). Toujours en une transaction et
-    protégé par le flag is_refunded.
+    devient négatif (dette du vendeur, §21). Une commande multi-boutiques est
+    contre-passée sous-commande par sous-commande. Toujours en transaction,
+    protégé par le flag is_refunded (jamais deux contre-passations).
     """
-    order = refund.payment.order
-    if order is None:
+    orders = refund.refunded_orders()
+    if not orders:
         return
-
     with transaction.atomic():
-        commission_tx = CommissionTransaction.objects.filter(
+        lock_wallets_for_orders(orders)
+        for order in orders:
+            _reverse_commission_for_order(refund, order)
+
+
+def _reverse_commission_for_order(refund, order):
+    with transaction.atomic():
+        commission_tx = CommissionTransaction.objects.select_for_update().filter(
             order=order, is_refunded=False
         ).first()
         if not commission_tx:
             return
 
-        wallet = SellerWallet.get_or_create_for(commission_tx.seller)
+        wallet = _locked_wallet(commission_tx.seller)
         amount = commission_tx.seller_amount
         available_before, pending_before = wallet.available_balance, wallet.pending_balance
 
-        takable_available = min(available_before, amount)
-        remaining = amount - takable_available
-        takable_pending = min(pending_before, remaining)
-        deficit = remaining - takable_pending  # dette vendeur (§21) : solde dispo négatif
+        # Fonds encore « en attente » rendus en priorité s'ils n'ont pas été
+        # libérés ; sinon pris sur le solde disponible (dette possible).
+        if not commission_tx.is_released:
+            takable_pending = min(pending_before, amount)
+            remaining = amount - takable_pending
+            takable_available = remaining
+        else:
+            takable_pending = Decimal("0")
+            takable_available = amount
 
-        wallet.available_balance = available_before - takable_available - deficit
+        wallet.available_balance = available_before - takable_available
         wallet.pending_balance = pending_before - takable_pending
         wallet.total_earned = max(Decimal("0"), wallet.total_earned - amount)
         wallet.save()
@@ -218,25 +231,57 @@ def reverse_commission_for_refund(refund):
             wallet=wallet, type=WalletTransaction.Type.REFUND, amount=-amount,
             available_before=available_before, available_after=wallet.available_balance,
             pending_before=pending_before, pending_after=wallet.pending_balance,
-            reference=f"refund:{refund.id}", order=order,
-            description=f"Remboursement {refund.amount} FCFA de la commande {str(order.id)[:8]}",
+            reference=f"refund:{refund.id}:{order.id}", order=order,
+            description=f"Remboursement de la commande {str(order.id)[:8]}",
         )
 
         commission_tx.is_refunded = True
         commission_tx.refunded_at = timezone.now()
         commission_tx.save(update_fields=["is_refunded", "refunded_at"])
 
-        platform = PlatformWallet.singleton()
+        platform = _locked_platform()
         platform.balance = platform.balance - commission_tx.commission_amount
         platform.total_commissions = max(Decimal("0"), platform.total_commissions - commission_tx.commission_amount)
         platform.total_refunds = platform.total_refunds + commission_tx.commission_amount
         platform.save()
         PlatformTransaction.objects.create(
             wallet=platform, type=PlatformTransaction.Type.REFUND,
-            amount=-commission_tx.commission_amount, reference=f"refund:{refund.id}",
+            amount=-commission_tx.commission_amount, reference=f"refund:{refund.id}:{order.id}",
             order=order,
-            description=f"Rêversement de la commission {commission_tx.commission_rate}%",
+            description=f"Reversement de la commission {commission_tx.commission_rate}%",
         )
+
+
+def lock_wallets_for_orders(orders):
+    """Verrouille les portefeuilles concernés dans un ordre fixe, plateforme en dernier.
+
+    Une vente multi-boutiques crédite plusieurs vendeurs puis la plateforme.
+    Sans ordre fixe, deux paiements simultanés verrouillaient A → plateforme
+    → B d'un côté et B → plateforme de l'autre : interblocage PostgreSQL
+    (erreur 500 sur le webhook). Tous les verrous sont pris d'un coup, triés
+    par vendeur, puis la plateforme ; les relectures suivantes dans la même
+    transaction ne bloquent plus.
+    """
+    seller_ids = sorted({order.store.owner_id for order in orders})
+    for seller_id in seller_ids:
+        SellerWallet.objects.get_or_create(seller_id=seller_id)
+    list(SellerWallet.objects.select_for_update().filter(seller_id__in=seller_ids).order_by("seller_id"))
+    _locked_platform()
+
+
+def _locked_wallet(seller):
+    """Portefeuille vendeur relu sous verrou de ligne (à appeler en transaction).
+
+    Sans verrou, deux écritures simultanées (vente + retrait) relisaient le
+    même solde et la seconde écrasait la première.
+    """
+    SellerWallet.get_or_create_for(seller)
+    return SellerWallet.objects.select_for_update().get(seller=seller)
+
+
+def _locked_platform():
+    PlatformWallet.singleton()
+    return PlatformWallet.objects.select_for_update().get(pk=1)
 
 
 # ------------------------------------------------------------------ libération (pending → available)
@@ -250,11 +295,20 @@ def release_pending_funds(at=None, seller=None):
     at = at or timezone.now()
     cutoff = at - timedelta(days=settings.COMMISSION_RELEASE_DAYS)
 
-    qs = CommissionTransaction.objects.filter(
-        is_refunded=False, is_released=False,
+    # Course simple (Delivery.order) ou mission multi-boutiques
+    # (Delivery.global_order) : les deux chemins mènent à la livraison.
+    delivered_single = Q(
         order__delivery__status=Delivery.Status.DELIVERED,
         order__delivery__delivered_at__lte=cutoff,
-    ).select_related("seller__seller_wallet")
+    )
+    delivered_multi = Q(
+        order__global_order__deliveries__status=Delivery.Status.DELIVERED,
+        order__global_order__deliveries__delivered_at__lte=cutoff,
+    )
+    qs = CommissionTransaction.objects.filter(
+        delivered_single | delivered_multi,
+        is_refunded=False, is_released=False,
+    ).exclude(order__status="cancelled").distinct().select_related("seller__seller_wallet")
     if seller:
         qs = qs.filter(seller=seller)
 
@@ -263,9 +317,9 @@ def release_pending_funds(at=None, seller=None):
         with transaction.atomic():
             # Relu sous verrou de ligne : deux tâches concurrentes ne libèrent qu'une fois.
             current = CommissionTransaction.objects.select_for_update().get(pk=commission_tx.pk)
-            if current.is_released:
+            if current.is_released or current.is_refunded:
                 continue
-            wallet = SellerWallet.objects.select_for_update().get(pk=current.seller.seller_wallet.pk)
+            wallet = _locked_wallet(current.seller)
             pending_before = wallet.pending_balance
             moving = current.seller_amount
             wallet.pending_balance = pending_before - moving

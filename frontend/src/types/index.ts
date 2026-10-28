@@ -576,6 +576,7 @@ export interface Invoice {
 export interface Payment {
   id: string;
   order: string | null;
+  global_order: string | null;
   subscription: string | null;
   method: "wave" | "orange_money" | "card";
   amount: string;

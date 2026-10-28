@@ -62,3 +62,10 @@ export function reasonLabel(reason: string): string {
   if (reason in DELIVERY_RETURN_REASONS) return DELIVERY_RETURN_REASONS[reason as DeliveryReturnReason];
   return reason;
 }
+/** Statuts où le colis est entre les mains du livreur : la remise au client
+ * (code de confirmation) est possible — même règle que le serveur. */
+export const HANDOVER_STATUSES = ["picked_up", "in_transit", "out_for_delivery"] as const;
+
+export function isHandoverStatus(status: string | null | undefined): boolean {
+  return !!status && (HANDOVER_STATUSES as readonly string[]).includes(status);
+}

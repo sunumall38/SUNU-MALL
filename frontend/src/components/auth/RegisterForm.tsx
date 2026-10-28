@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,6 +26,21 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
   const [phoneToken, setPhoneToken] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [verifyingOtp, setVerifyingOtp] = useState(false);
+  // Le SMS n'est proposé que si le serveur peut réellement en envoyer.
+  const [smsAvailable, setSmsAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    authApi
+      .getAuthOptions()
+      .then((options) => {
+        if (!cancelled) setSmsAvailable(options.sms_verification);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     register,
@@ -146,6 +161,7 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
       <Input label="Téléphone" icon={Phone} {...register("phone")} error={errors.phone?.message} />
       <Input label="Mot de passe" type="password" icon={Lock} {...register("password")} error={errors.password?.message} />
 
+      {smsAvailable && (
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm font-semibold text-ink">Comment souhaitez-vous activer votre compte ?</legend>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-white p-3 has-[:checked]:border-orange has-[:checked]:bg-orange-50/50">
@@ -163,6 +179,7 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
           </span>
         </label>
       </fieldset>
+      )}
 
       {isMerchant && (
         <div className="flex items-start gap-2 rounded-xl border border-border bg-muted p-4">

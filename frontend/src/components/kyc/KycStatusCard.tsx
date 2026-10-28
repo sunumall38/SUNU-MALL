@@ -123,6 +123,7 @@ export function KycStatusCard({ kind }: Props) {
         ) : (
           <div className="flex flex-col gap-2.5">
             <select
+              aria-label="Type de pièce d'identité"
               value={documentType}
               onChange={(e) => setDocumentType(e.target.value)}
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-orange focus:ring-2 focus:ring-orange/20"
@@ -201,6 +202,7 @@ export function KycStatusCard({ kind }: Props) {
           ) : (
             <div className="flex flex-col gap-2.5">
               <select
+                aria-label="Type de pièce d'identité"
                 value={documentType}
                 onChange={(e) => setDocumentType(e.target.value)}
                 className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-orange focus:ring-2 focus:ring-orange/20"

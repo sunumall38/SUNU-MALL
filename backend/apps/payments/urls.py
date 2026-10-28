@@ -1,6 +1,6 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from .views import PaymentViewSet, RefundViewSet, PaymentWebhookView
+from .views import PaymentMethodsView, PaymentViewSet, RefundViewSet, PaymentWebhookView
 
 router = DefaultRouter()
 # IMPORTANT : "refunds" doit être enregistré avant le préfixe vide "" —
@@ -10,5 +10,6 @@ router.register("refunds", RefundViewSet, basename="refund")
 router.register("", PaymentViewSet, basename="payment")
 
 urlpatterns = [
+    path("methods/", PaymentMethodsView.as_view(), name="payment-methods"),
     path("webhook/<str:provider>/", PaymentWebhookView.as_view(), name="payment-webhook"),
 ] + router.urls

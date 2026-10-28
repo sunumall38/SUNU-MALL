@@ -116,3 +116,45 @@ def send_guest_login_link(user: User) -> bool:
     except Exception:
         logger.exception("Échec de l'envoi du lien de connexion invité pour %s", user.email)
         return False
+
+
+def send_password_reset_link(user: User) -> bool:
+    """
+    Envoie un lien de réinitialisation du mot de passe à usage unique.
+
+    Même protections que le lien invité : seule l'empreinte du jeton est
+    stockée, un seul lien valide à la fois, refroidissement entre deux envois.
+    Ne lève jamais.
+    """
+    now = timezone.now()
+    pending = Token.objects.filter(user=user, type=Token.TokenType.PASSWORD_RESET)
+    cooldown = timedelta(seconds=settings.PASSWORD_RESET_COOLDOWN_SECONDS)
+    if pending.filter(created_at__gt=now - cooldown).exists():
+        return False
+    pending.filter(used_at__isnull=True).update(used_at=now)
+
+    raw_token = secrets.token_urlsafe(32)
+    Token.objects.create(
+        user=user,
+        type=Token.TokenType.PASSWORD_RESET,
+        token=hash_guest_login_token(raw_token),
+        expires_at=now + timedelta(minutes=settings.PASSWORD_RESET_TTL_MINUTES),
+    )
+    reset_url = f"{settings.FRONTEND_URL.rstrip('/')}/reinitialiser-mot-de-passe?token={raw_token}"
+    message = render_to_string("emails/password_reset.txt", {
+        "user": user,
+        "reset_url": reset_url,
+        "ttl_minutes": settings.PASSWORD_RESET_TTL_MINUTES,
+    })
+    try:
+        sent_count = send_mail(
+            subject="Réinitialisation de votre mot de passe - SUNU MALL",
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[user.email],
+            fail_silently=False,
+        )
+        return sent_count == 1
+    except Exception:
+        logger.exception("Échec de l'envoi du lien de réinitialisation pour %s", user.email)
+        return False

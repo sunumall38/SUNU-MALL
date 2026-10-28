@@ -9,5 +9,6 @@ router.register("complaints", views.ComplaintViewSet, basename="complaints")
 router.register("tickets", views.SupportTicketViewSet, basename="support-tickets")
 
 urlpatterns = [
+    path("contact/", views.ContactMessageView.as_view(), name="contact-message"),
     path("", include(router.urls)),
 ]

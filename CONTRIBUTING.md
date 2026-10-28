@@ -6,7 +6,9 @@ On suit Gitflow, simplifié :
 
 - `main` — toujours stable, c'est ce qui est en production.
 - `develop` — intégration : tout ce qui est prêt mais pas encore livré.
-- `feature/<nom-court>` — une branche par fonctionnalité/ticket, créée **depuis `develop`**, jamais depuis `main`.
+- `feature/<nom-court>` / `fix/<nom-court>` — une branche par fonctionnalité ou correction, créée **depuis `develop`**, jamais depuis `main`.
+- `release/X.Y.Z` — préparation d'une version (depuis `develop`, fusionnée dans `main`).
+- `hotfix/X.Y.Z` — correctif urgent de production (depuis `main`).
 
 ```bash
 git checkout develop
@@ -39,18 +41,53 @@ Zones courantes : `backend`, `frontend`, `ia`, `infra`.
 
 `main` ne reçoit que des merges depuis `develop`, au moment d'une release.
 
-## Versioning
+## Versions et tags
 
-On suit SemVer (`MAJOR.MINOR.PATCH`), ex : `1.2.3`.
+On suit [SemVer](https://semver.org/lang/fr/) (`MAJEUR.MINEUR.CORRECTIF`, ex. `1.2.3`) :
 
-- **MAJOR** : changement de fond, potentiellement incompatible (ex: refonte du système de paiement)
-- **MINOR** : nouvelle fonctionnalité (ex: ajout du paiement Wave)
-- **PATCH** : correction de bug (ex: prix mal affiché)
+- **MAJEUR** : changement incompatible (ex. refonte du paiement, API cassée pour l'app mobile) ;
+- **MINEUR** : nouvelle fonctionnalité compatible (ex. un nouveau moyen de paiement) ;
+- **CORRECTIF** : correction de bug sans nouveauté (ex. prix mal affiché).
 
-```bash
-git tag -a v1.0.0 -m "Version 1.0.0"
-git push origin v1.0.0
-```
+La version vit dans **un seul fichier**, `VERSION` à la racine. Elle est
+reprise par l'API (`GET /api/version/`, documentation OpenAPI), par le
+frontend (pied de page) et par l'historique des déploiements de
+l'administration. Un test vérifie que `VERSION` et `frontend/package.json`
+concordent.
+
+Chaque tag `vX.Y.Z` correspond exactement à ce qui part en production.
+
+### Publier une version
+
+1. Au fil de l'eau, chaque PR complète la section `## [Non publié]` de
+   `CHANGELOG.md` (Ajouté / Modifié / Corrigé / Sécurité).
+2. Depuis `develop` à jour, créer `release/X.Y.Z`, vérifier (CI verte,
+   recette), puis :
+
+   ```bash
+   scripts/release.sh minor        # ou patch, major, ou 1.4.0
+   git push origin release/X.Y.Z && git push origin vX.Y.Z
+   ```
+
+   Le script met à jour `VERSION`, `frontend/package.json` et le CHANGELOG,
+   crée le commit `chore(release): vX.Y.Z` et le tag annoté.
+3. Ouvrir la PR `release/X.Y.Z` → `main`, la fusionner (pas de squash : le
+   tag doit rester sur l'historique de `main`), puis fusionner `main` dans
+   `develop`.
+4. Pousser le tag déclenche `.github/workflows/release.yml`, qui crée la
+   release GitHub avec les notes du CHANGELOG. La fusion sur `main` déclenche
+   le déploiement Render et Cloudflare Pages.
+
+### Correctif urgent
+
+`hotfix/X.Y.Z` depuis `main`, correction, `scripts/release.sh patch`, PR vers
+`main` puis report dans `develop`.
+
+### Revenir à une version
+
+Render : *Manual Deploy → Deploy a specific commit* et choisir le commit du
+tag. Cloudflare Pages : *Deployments → … → Rollback* sur le déploiement de ce
+commit. La page « Déploiements » de l'administration montre la version active.
 
 ## Dockerfile
 

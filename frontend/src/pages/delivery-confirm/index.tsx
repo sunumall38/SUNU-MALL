@@ -7,21 +7,29 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { ApiError } from "@/lib/api";
+import { ApiError, apiErrorMessage } from "@/lib/api";
+import { isHandoverStatus } from "@/lib/delivery";
+import type { GlobalOrder, Order } from "@/types";
 
 export default function DeliveryConfirmPage() {
   const [searchParams] = useSearchParams();
   const orderId = searchParams.get("order");
+  const globalOrderId = searchParams.get("gorder");
   const { data: order, loading, refetch } = useAsync(
-    () => (orderId ? ordersApi.getOrder(orderId) : Promise.resolve(null)),
-    [orderId],
+    (): Promise<Order | GlobalOrder | null> =>
+      orderId
+        ? ordersApi.getOrder(orderId)
+        : globalOrderId
+          ? ordersApi.getGlobalOrder(globalOrderId)
+          : Promise.resolve(null),
+    [orderId, globalOrderId],
   );
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
-  if (!orderId) return <EmptyState icon={PackageSearch} title="Aucune commande sélectionnée" />;
+  if (!orderId && !globalOrderId) return <EmptyState icon={PackageSearch} title="Aucune commande sélectionnée" />;
   if (loading) return <Spinner label="Chargement…" />;
   if (!order) return <EmptyState icon={PackageSearch} title="Commande introuvable" />;
 
@@ -39,11 +47,11 @@ export default function DeliveryConfirmPage() {
       setCode("");
       refetch();
     } catch (err) {
-      if (err instanceof ApiError && typeof err.data === "object" && err.data && "detail" in err.data) {
-        setError(String((err.data as Record<string, unknown>).detail));
-      } else {
-        setError("Impossible de confirmer la livraison. Vérifiez votre connexion.");
-      }
+      setError(
+        err instanceof ApiError
+          ? apiErrorMessage(err, "Code de confirmation invalide.")
+          : "Impossible de confirmer la livraison. Vérifiez votre connexion.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -63,7 +71,7 @@ export default function DeliveryConfirmPage() {
         <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-green-50 px-4 py-2.5 text-sm font-semibold text-success">
           <CheckCircle2 className="h-4 w-4" /> Réception déjà confirmée. Bonne réception !
         </div>
-      ) : delivery?.status === "picked_up" ? (
+      ) : isHandoverStatus(delivery?.status) ? (
         <form onSubmit={handleConfirm} className="flex w-full max-w-sm flex-col gap-3">
           <label className="flex flex-col items-center gap-1.5 text-sm font-semibold text-ink">
             <KeyRound className="h-5 w-5 text-orange" />
@@ -96,7 +104,7 @@ export default function DeliveryConfirmPage() {
         </p>
       )}
 
-      {!delivered && delivery?.status === "picked_up" && (
+      {!delivered && isHandoverStatus(delivery?.status) && (
         <p className="max-w-sm text-xs text-muted-foreground">
           Le livreur vous a communiqué un code à 6 chiffres lors de la remise. Saisissez-le pour valider votre commande.
         </p>

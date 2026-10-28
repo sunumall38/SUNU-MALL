@@ -39,6 +39,7 @@ export default function AdminAnalyticsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-ink">Analytics</h1>
         <select
+          aria-label="Période"
           value={period}
           onChange={(e) => setPeriod(e.target.value)}
           className="rounded-lg border border-border bg-white px-3 py-2 text-sm"

@@ -259,3 +259,54 @@ class ComplaintsTestCase(TestCase):
         self.assertEqual(
             next(a for a in alerts if a["code"] == "complaints_critical")["count"], 1
         )
+
+class ContactMessageTests(TestCase):
+    """Formulaire public « Contactez-nous »."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def _post(self, **overrides):
+        from rest_framework.test import APIClient
+
+        payload = {"name": "Awa", "email": "awa@example.com", "subject": "Livraison", "message": "Bonjour"}
+        payload.update(overrides)
+        return APIClient().post("/api/complaints/contact/", payload, format="json")
+
+    def test_message_is_stored_and_team_notified(self):
+        from django.core import mail
+        from django.test import override_settings
+        from apps.complaints.models import ContactMessage
+
+        with override_settings(CONTACT_EMAIL="support@sunumall.test"):
+            response = self._post()
+        self.assertEqual(response.status_code, 201)
+        contact = ContactMessage.objects.get()
+        self.assertTrue(contact.notified)
+        self.assertEqual(mail.outbox[0].to, ["support@sunumall.test"])
+        self.assertEqual(mail.outbox[0].reply_to, ["awa@example.com"])
+
+    def test_message_kept_even_without_notification_address(self):
+        from django.test import override_settings
+        from apps.complaints.models import ContactMessage
+
+        with override_settings(CONTACT_EMAIL="", ADMIN_NOTIFICATION_EMAIL=""):
+            response = self._post()
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(ContactMessage.objects.get().notified)
+
+    def test_honeypot_is_silently_ignored(self):
+        from apps.complaints.models import ContactMessage
+
+        response = self._post(website="http://spam.example")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(ContactMessage.objects.count(), 0)
+
+    def test_invalid_email_is_refused(self):
+        self.assertEqual(self._post(email="pas-un-email").status_code, 400)
+
+    def test_flood_is_throttled(self):
+        codes = [self._post().status_code for _ in range(6)]
+        self.assertEqual(codes[-1], 429)

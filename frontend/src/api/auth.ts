@@ -71,3 +71,17 @@ export function verifyEmail(uid: string, token: string) {
     { auth: false },
   );
 }
+
+/** Demande de lien « mot de passe oublié » (réponse identique si le compte n'existe pas). */
+export function requestPasswordReset(payload: { phone?: string; email?: string }) {
+  return apiPost<{ message: string }>("/auth/password-reset/", payload, { auth: false });
+}
+
+export function confirmPasswordReset(payload: { token: string; new_password: string; confirm_password: string }) {
+  return apiPost<{ message: string }>("/auth/password-reset/confirm/", payload, { auth: false });
+}
+
+/** Options d'inscription de cet environnement (SMS disponible ou non). */
+export function getAuthOptions() {
+  return apiGet<{ sms_verification: boolean }>("/auth/options/", { auth: false });
+}

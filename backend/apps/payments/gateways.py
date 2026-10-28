@@ -21,6 +21,7 @@ import base64
 import hashlib
 import hmac
 import time
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
@@ -31,16 +32,31 @@ class PaymentGatewayError(Exception):
 
 
 def _payment_return_url(payment):
-    """URL de retour du client après un paiement réussi (page de confirmation)."""
-    base = settings.FRONTEND_URL.rstrip("/")
-    if payment.global_order_id:
-        return f"{base}/order-confirmed?gorder={payment.global_order_id}&payment={payment.id}"
-    return f"{base}/order-confirmed?order={payment.order_id}&payment={payment.id}"
+    """URL de retour du client après le paiement.
+
+    Une seule page de retour pour tous les objets payés (commande, commande
+    multi-boutiques, abonnement) : elle interroge l'API sur le statut réel du
+    paiement — le retour navigateur n'est jamais une preuve de paiement — puis
+    redirige vers la bonne page.
+    """
+    return f"{settings.FRONTEND_URL.rstrip('/')}/paiement/retour?payment={payment.id}"
 
 
 def _payment_cancel_url(payment):
     """URL de retour du client après une annulation ou une erreur de paiement."""
-    return f"{settings.FRONTEND_URL.rstrip('/')}/checkout-payment?payment={payment.id}&error=1"
+    return f"{_payment_return_url(payment)}&error=1"
+
+
+def _same_amount(provider_amount, payment):
+    """Vrai si le montant annoncé par le fournisseur est celui du paiement.
+
+    XOF n'a pas de décimales : on compare en FCFA entiers. Un montant absent
+    ou illisible n'est jamais considéré comme conforme.
+    """
+    try:
+        return int(Decimal(str(provider_amount))) == int(payment.amount)
+    except (InvalidOperation, TypeError, ValueError):
+        return False
 
 
 def _parse_wave_signature(header):
@@ -121,14 +137,59 @@ def _json_post(url, payload=None, headers=None, **kwargs):
     return response.json()
 
 
+def _json_get(url, headers=None, params=None, timeout=15):
+    """GET JSON vers une passerelle, mêmes règles d'erreur que `_json_post`."""
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=timeout)
+    except requests.RequestException as exc:
+        raise PaymentGatewayError(f"Impossible de joindre {url} : {exc}")
+    if response.status_code >= 400:
+        raise PaymentGatewayError(
+            f"La passerelle {url} a refusé la demande (HTTP {response.status_code})."
+        )
+    try:
+        return response.json()
+    except ValueError:
+        raise PaymentGatewayError(f"Réponse illisible de {url}.")
+
+
+# Issue d'une vérification de statut auprès du fournisseur.
+SUCCESS = "success"
+FAILED = "failed"
+
+
 class BasePaymentGateway:
+    #: Vrai quand le moyen de paiement peut réellement encaisser.
+    method = None
+
     def initiate(self, payment) -> dict:
         """Démarre le paiement. Retourne les infos à afficher/utiliser côté client."""
         raise NotImplementedError
 
+    def fetch_status(self, payment):
+        """Interroge le fournisseur sur le paiement.
+
+        Retourne ``SUCCESS``, ``FAILED`` ou ``None`` (toujours en cours ou
+        inconnu). Sert de filet de sécurité quand un webhook se perd : la
+        page de retour du client et l'administration peuvent forcer une
+        vérification.
+        """
+        return None
+
+    def refund(self, payment):
+        """Rembourse le client chez le fournisseur.
+
+        Retourne True si le fournisseur a confirmé le remboursement, False si
+        ce moyen de paiement n'a pas d'API de remboursement (traitement
+        manuel par un administrateur).
+        """
+        return False
+
 
 class SandboxGateway(BasePaymentGateway):
     """Simulation locale — ne contacte aucun vrai fournisseur de paiement."""
+
+    method = "sandbox"
 
     def initiate(self, payment) -> dict:
         provider_ref = f"SANDBOX-{payment.id.hex[:10].upper()}"
@@ -155,13 +216,56 @@ class WaveGateway(BasePaymentGateway):
     dans `PaymentWebhookView`).
     """
 
+    method = "wave"
     CREATE_SESSION_URL = "/v1/checkout/sessions"
 
-    def initiate(self, payment) -> dict:
+    def _url(self, path):
+        return f"{settings.WAVE_API_BASE_URL.rstrip('/')}{path}"
+
+    def _headers(self):
         if not settings.WAVE_API_KEY:
             raise PaymentGatewayError("WAVE_API_KEY n'est pas configurée.")
+        return {
+            "Authorization": f"Bearer {settings.WAVE_API_KEY}",
+            "Content-Type": "application/json",
+        }
 
-        url = f"{settings.WAVE_API_BASE_URL.rstrip('/')}{self.CREATE_SESSION_URL}"
+    def _session_id(self, payment):
+        ref = payment.provider_ref or ""
+        return ref if ref.startswith("cos-") else None
+
+    def get_session(self, payment):
+        """Session de paiement Wave liée au paiement (None si aucune)."""
+        session_id = self._session_id(payment)
+        if not session_id:
+            return None
+        return _json_get(self._url(f"{self.CREATE_SESSION_URL}/{session_id}"), headers=self._headers())
+
+    def initiate(self, payment) -> dict:
+        headers = self._headers()
+
+        # Une session encore ouverte (client revenu en arrière, double clic)
+        # est réutilisée : une seule session payable à la fois par paiement.
+        if self._session_id(payment):
+            try:
+                existing = self.get_session(payment)
+            except PaymentGatewayError:
+                existing = None
+            if (
+                existing
+                and existing.get("checkout_status") == "open"
+                and existing.get("wave_launch_url")
+                and _same_amount(existing.get("amount"), payment)
+            ):
+                return {
+                    "sandbox": False,
+                    "method": "wave",
+                    "provider_ref": existing.get("id"),
+                    "checkout_url": existing["wave_launch_url"],
+                    "message": "Redirection vers Wave pour valider le paiement.",
+                }
+
+        url = self._url(self.CREATE_SESSION_URL)
         payload = {
             # Montant dans la plus petite unité monétaire : XOF sans
             # décimale → exprimé en FCFA entiers.
@@ -170,10 +274,6 @@ class WaveGateway(BasePaymentGateway):
             "client_reference": str(payment.id),
             "success_url": _payment_return_url(payment),
             "error_url": _payment_cancel_url(payment),
-        }
-        headers = {
-            "Authorization": f"Bearer {settings.WAVE_API_KEY}",
-            "Content-Type": "application/json",
         }
         try:
             session = _json_post(url, payload, headers)
@@ -195,6 +295,48 @@ class WaveGateway(BasePaymentGateway):
             "message": "Redirection vers Wave pour valider le paiement.",
         }
 
+    def fetch_status(self, payment):
+        session = self.get_session(payment)
+        if not session:
+            return None
+        return wave_session_outcome(session, payment)
+
+    def refund(self, payment):
+        session_id = self._session_id(payment)
+        if not session_id:
+            raise PaymentGatewayError("Aucune session Wave n'est liée à ce paiement.")
+        url = self._url(f"{self.CREATE_SESSION_URL}/{session_id}/refund")
+        try:
+            response = requests.post(url, headers=self._headers(), timeout=15)
+        except requests.RequestException as exc:
+            raise PaymentGatewayError(f"Wave : impossible de joindre {url} : {exc}")
+        if response.status_code >= 400:
+            raise PaymentGatewayError(
+                f"Wave a refusé le remboursement (HTTP {response.status_code}) : {response.text[:300]}"
+            )
+        return True
+
+
+def wave_session_outcome(session, payment):
+    """Traduit une session Wave en issue de paiement.
+
+    * ``succeeded`` → SUCCESS, seulement si montant et devise sont ceux du
+      paiement (sinon refus : la session ne règle pas ce paiement-là) ;
+    * session expirée sans paiement → FAILED ;
+    * tentative refusée (``cancelled``) alors que la session reste ouverte →
+      None : le client peut encore réessayer sur la même page Wave.
+    """
+    payment_status = str(session.get("payment_status") or "").lower()
+    checkout_status = str(session.get("checkout_status") or "").lower()
+    if payment_status == "succeeded":
+        currency = str(session.get("currency") or "XOF").upper()
+        if currency != (payment.currency or "XOF").upper() or not _same_amount(session.get("amount"), payment):
+            raise PaymentGatewayError("Wave : montant ou devise de la session différents du paiement.")
+        return SUCCESS
+    if checkout_status == "expired":
+        return FAILED
+    return None
+
 
 class OrangeMoneyGateway(BasePaymentGateway):
     """
@@ -207,15 +349,28 @@ class OrangeMoneyGateway(BasePaymentGateway):
     voir `verify_orange_notification`).
     """
 
+    method = "orange_money"
     TOKEN_URL = "/oauth/v3/token"
     WEBPAYMENT_PATH = "/orange-money-webpay/{env}/v1/webpayment"
+    STATUS_PATH = "/orange-money-webpay/{env}/v1/transactionstatus"
 
     def _api_base(self):
         return settings.ORANGE_MONEY_API_BASE_URL.rstrip("/")
 
+    def _env(self):
+        # "dev" = environnement de test d'Orange (vraies API, faux argent) ;
+        # "sn" = production au Sénégal. Indépendant de PAYMENT_SANDBOX, qui
+        # désigne la simulation interne sans aucun appel à Orange.
+        return (settings.ORANGE_MONEY_COUNTRY_PATH or "sn").strip().strip("/")
+
     def _webpayment_path(self):
-        env = "dev" if settings.PAYMENT_SANDBOX else settings.ORANGE_MONEY_COUNTRY_PATH
-        return self.WEBPAYMENT_PATH.format(env=env)
+        return self.WEBPAYMENT_PATH.format(env=self._env())
+
+    def _currency(self):
+        # L'environnement de test d'Orange n'accepte que la devise fictive OUV.
+        if self._env() == "dev":
+            return "OUV"
+        return settings.ORANGE_MONEY_CURRENCY or "XOF"
 
     def _access_token(self) -> str:
         if not settings.ORANGE_MONEY_CLIENT_ID or not settings.ORANGE_MONEY_CLIENT_SECRET:
@@ -251,13 +406,16 @@ class OrangeMoneyGateway(BasePaymentGateway):
             raise PaymentGatewayError("ORANGE_MONEY_MERCHANT_KEY n'est pas configurée.")
 
         access_token = self._access_token()
-        # order_id est notre référentiel de rapprochement : unique, court, et
-        # sans ambiguïté (réutiliser un order_id déjà consommé → 403 Orange).
-        order_id = f"SM-{payment.id.hex[:16].upper()}"
+        # order_id est notre référentiel de rapprochement : unique et court.
+        # Orange refuse un order_id déjà utilisé (403) : chaque nouvelle
+        # tentative du même paiement reçoit donc son propre suffixe.
+        previous = (payment.metadata or {}).get("orange_money") or {}
+        attempt = int(previous.get("attempt") or 0) + 1
+        order_id = f"SM-{payment.id.hex[:12].upper()}-{attempt}"
         payment_id = str(payment.id)
         payload = {
             "merchant_key": settings.ORANGE_MONEY_MERCHANT_KEY,
-            "currency": settings.ORANGE_MONEY_CURRENCY or "XOF",
+            "currency": self._currency(),
             "order_id": order_id,
             "amount": int(payment.amount),
             "return_url": _payment_return_url(payment),
@@ -283,7 +441,12 @@ class OrangeMoneyGateway(BasePaymentGateway):
         # confirmation ; notif_token est la preuve d'authenticité du webhook.
         payment.provider_ref = pay_token
         metadata = dict(payment.metadata)
+        history = list(metadata.get("orange_money_attempts") or [])
+        if previous.get("pay_token"):
+            history.append({k: previous.get(k) for k in ("order_id", "pay_token", "notif_token")})
+        metadata["orange_money_attempts"] = history[-10:]
         metadata["orange_money"] = {
+            "attempt": attempt,
             "order_id": order_id,
             "pay_token": pay_token,
             "notif_token": notif_token,
@@ -299,6 +462,42 @@ class OrangeMoneyGateway(BasePaymentGateway):
             "message": "Redirection vers Orange Money pour valider le paiement.",
         }
 
+    def _attempts(self, payment):
+        metadata = payment.metadata or {}
+        current = metadata.get("orange_money") or {}
+        attempts = [current] if current.get("pay_token") else []
+        attempts += [a for a in metadata.get("orange_money_attempts") or [] if a.get("pay_token")]
+        return attempts
+
+    def fetch_status(self, payment):
+        """Statut via ``transactionstatus`` pour chaque tentative connue.
+
+        Une tentative réussie suffit (le client a pu payer dans un ancien
+        onglet) ; le paiement n'est en échec que si la dernière tentative
+        l'est.
+        """
+        attempts = self._attempts(payment)
+        if not attempts:
+            return None
+        access_token = self._access_token()
+        url = f"{self._api_base()}{self.STATUS_PATH.format(env=self._env())}"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        latest = None
+        for index, attempt in enumerate(attempts):
+            result = _json_post(url, {
+                "order_id": attempt.get("order_id"),
+                "amount": int(payment.amount),
+                "pay_token": attempt.get("pay_token"),
+            }, headers)
+            value = str((result or {}).get("status") or "").upper()
+            if value == "SUCCESS":
+                return SUCCESS
+            if index == 0:
+                latest = value
+        if latest in ("FAILED", "EXPIRED"):
+            return FAILED
+        return None
+
 
 def verify_orange_notification(payment, notif_token) -> bool:
     """Authentifie une notification Orange Money.
@@ -310,16 +509,62 @@ def verify_orange_notification(payment, notif_token) -> bool:
     """
     if not isinstance(notif_token, str) or not notif_token:
         return False
-    stored = (payment.metadata or {}).get("orange_money", {}).get("notif_token")
-    if not isinstance(stored, str) or not stored:
-        return False
-    return hmac.compare_digest(stored, notif_token)
+    metadata = payment.metadata or {}
+    candidates = [(metadata.get("orange_money") or {}).get("notif_token")]
+    candidates += [a.get("notif_token") for a in metadata.get("orange_money_attempts") or []]
+    valid = False
+    for stored in candidates:
+        if isinstance(stored, str) and stored and hmac.compare_digest(stored, notif_token):
+            valid = True
+    return valid
+
+
+METHOD_LABELS = {
+    "wave": "Wave",
+    "orange_money": "Orange Money",
+    "card": "Carte bancaire",
+}
+
+
+def _configured(method):
+    if method == "wave":
+        return bool(settings.WAVE_API_KEY)
+    if method == "orange_money":
+        return bool(
+            settings.ORANGE_MONEY_CLIENT_ID
+            and settings.ORANGE_MONEY_CLIENT_SECRET
+            and settings.ORANGE_MONEY_MERCHANT_KEY
+        )
+    # Aucune passerelle carte n'est branchée : la carte n'existe qu'en
+    # simulation.
+    return False
+
+
+def available_methods():
+    """Moyens de paiement proposables aux clients sur cet environnement."""
+    sandbox = bool(settings.PAYMENT_SANDBOX)
+    return [
+        {"id": method, "label": label}
+        for method, label in METHOD_LABELS.items()
+        if sandbox or _configured(method)
+    ]
+
+
+def is_method_available(method):
+    return any(m["id"] == method for m in available_methods())
 
 
 def get_gateway(method: str) -> BasePaymentGateway:
     if settings.PAYMENT_SANDBOX:
         return SandboxGateway()
-    return {
-        "wave": WaveGateway(),
-        "orange_money": OrangeMoneyGateway(),
-    }.get(method, SandboxGateway())
+    gateway = {
+        "wave": WaveGateway,
+        "orange_money": OrangeMoneyGateway,
+    }.get(method)
+    if gateway is None:
+        # Jamais de repli silencieux sur la simulation en production : un
+        # moyen sans passerelle réelle ne peut pas encaisser.
+        raise PaymentGatewayError(
+            f"Le moyen de paiement « {METHOD_LABELS.get(method, method)} » n'est pas disponible."
+        )
+    return gateway()

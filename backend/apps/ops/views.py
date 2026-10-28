@@ -56,8 +56,33 @@ class HealthView(APIView):
         checks = run_health_checks()
         summary = health_overall(checks)
         ready_ok = summary != "down"
-        data = {"status": summary, "checks": checks, "generated_at": timezone.now()}
+        # Réponse publique minimale : ni noms de dépendances, ni latences, ni
+        # messages d'erreur (détails d'infrastructure). Le détail est réservé
+        # aux administrateurs (AdminHealthView).
+        data = {"status": summary}
         return Response(data, status=status.HTTP_200_OK if ready_ok else status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class VersionView(APIView):
+    """GET /api/version/ — version publiée et commit déployé (public)."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        from django.conf import settings as dj_settings
+
+        return Response({"version": dj_settings.APP_VERSION, "commit": dj_settings.APP_COMMIT[:12]})
+
+
+class AdminHealthView(APIView):
+    """GET /api/ops/health/ — détail des contrôles de santé (administrateurs)."""
+
+    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        checks = run_health_checks()
+        return Response({"status": health_overall(checks), "checks": checks, "generated_at": timezone.now()})
 
 
 class SystemSettingViewSet(viewsets.ReadOnlyModelViewSet):

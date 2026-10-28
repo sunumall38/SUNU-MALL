@@ -3,6 +3,8 @@ import { ArrowRight, ChevronDown, Clock, Mail, MapPin, MessageCircle, Phone } fr
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
+import { apiErrorMessage } from "@/lib/api";
+import { sendContactMessage } from "@/api/complaints";
 
 const CONTACT_CARDS = [
   { icon: Phone, title: "Téléphone", lines: ["+221 33 860 00 00", "+221 77 860 00 00"], href: "tel:+221338600000" },
@@ -26,7 +28,7 @@ const FAQ = [
   },
   {
     q: "Quels moyens de paiement acceptez-vous ?",
-    a: "Wave, Orange Money et carte bancaire (Visa/Mastercard). Paiement à la livraison selon les boutiques participantes.",
+    a: "Wave et Orange Money. Vous êtes redirigé vers la page sécurisée de votre opérateur, et votre commande est confirmée dès que le paiement est validé.",
   },
 ];
 
@@ -38,14 +40,27 @@ const CONTACT_FIELDS = [
 
 export default function ContactPage() {
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });
-  const [sent, setSent] = useState(false);
+  const [website, setWebsite] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const subject = encodeURIComponent(`[Contact] ${form.subject || "Demande"}`);
-    const body = encodeURIComponent(`${form.name}\n${form.email}\n\n${form.message}`);
-    window.location.href = `mailto:support@sunumall.com?subject=${subject}&body=${body}`;
-    setSent(true);
+    setSending(true);
+    setError(null);
+    try {
+      const res = await sendContactMessage({ ...form, website });
+      setSent(res.message);
+      setForm({ name: "", email: "", subject: "", message: "" });
+    } catch (err) {
+      setError(
+        apiErrorMessage(err, "Envoi impossible pour le moment.") +
+          " Vous pouvez aussi nous écrire à support@sunumall.com.",
+      );
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -95,7 +110,7 @@ export default function ContactPage() {
           <div className="rounded-2xl border border-gray-100 bg-white p-6 md:p-8">
             <h2 className="font-display text-lg font-bold text-gray-800">Écrivez-nous</h2>
             <p className="mt-1 text-sm text-gray-400">
-              Votre message sera composé dans votre messagerie (mailto) — pour un échange instantané, utilisez le chat en bas à droite.
+              Notre équipe vous répond par email sous 24h ouvrées — pour un échange instantané, utilisez le chat en bas à droite.
             </p>
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               {CONTACT_FIELDS.map(({ key, label, type, required }) => (
@@ -114,14 +129,22 @@ export default function ContactPage() {
                 onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
                 required
               />
-              <Button type="submit" loading={false}>
+              {/* Pot de miel anti-robots : invisible pour les humains. */}
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                className="hidden"
+                value={website}
+                onChange={(e) => setWebsite(e.target.value)}
+              />
+              <Button type="submit" loading={sending}>
                 Envoyer le message
               </Button>
-              {sent && (
-                <p className="text-sm text-success">
-                  Votre messagerie s'est ouverte avec le message pré-rempli. Merci ! Nous reviendrons vers vous rapidement.
-                </p>
-              )}
+              {sent && <p className="text-sm text-success">{sent}</p>}
+              {error && <p className="text-sm text-danger">{error}</p>}
             </form>
           </div>
 
