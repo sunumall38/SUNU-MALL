@@ -50,7 +50,7 @@ RUN DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py collectstatic --
 
 EXPOSE 8000
 
-# Le même artefact sert l'API, le worker Celery et Celery Beat sur Railway.
+# Le même artefact sert l'API, le worker Celery et Celery Beat.
 # PROCESS_TYPE sélectionne le processus sans dupliquer l'image.
-RUN chmod +x /app/railway-entrypoint.sh
-CMD ["/app/railway-entrypoint.sh"]
+RUN chmod +x /app/entrypoint.sh
+CMD ["/app/entrypoint.sh"]

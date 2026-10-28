@@ -23,7 +23,7 @@ class Command(BaseCommand):
                 subject="Test du service email SUNU MALL",
                 message=(
                     "Le service email transactionnel de SUNU MALL est correctement "
-                    "configuré et joignable depuis Railway."
+                    "configuré et joignable depuis le serveur."
                 ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[recipient],

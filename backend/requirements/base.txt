@@ -34,8 +34,8 @@ drf-spectacular>=0.27,<0.28
 # la branche 2.x qui reste compatible avec l'écosystème Django actuel.
 requests>=2.31,<3
 
-# Envoi transactionnel via API HTTPS (Resend), compatible avec toutes les
-# offres Railway où les ports SMTP sortants sont bloqués.
+# Envoi transactionnel via API HTTPS (Resend), pour les hébergeurs où les
+# ports SMTP sortants sont bloqués.
 django-anymail>=13.0,<14.0
 
 # Client API Anthropic (Claude) — juste un client HTTP, pas une lib ML

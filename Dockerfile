@@ -1,4 +1,4 @@
-# Railway builds the repository root when the service is connected to GitHub.
+# Render builds the repository root (see render.yaml, dockerfilePath).
 # Keep the Django application in /app while preserving the monorepo layout.
 FROM python:3.12-slim AS builder
 
@@ -28,12 +28,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 COPY backend/ .
-COPY railway-entrypoint.sh /app/railway-entrypoint.sh
+COPY entrypoint.sh /app/entrypoint.sh
 COPY VERSION /app/VERSION
 
 RUN DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py collectstatic --noinput \
-    && chmod +x /app/railway-entrypoint.sh /app/render-start.sh
+    && chmod +x /app/entrypoint.sh /app/render-start.sh
 
 EXPOSE 8000
 
-CMD ["/app/railway-entrypoint.sh"]
+CMD ["/app/entrypoint.sh"]
