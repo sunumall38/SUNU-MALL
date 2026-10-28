@@ -63,6 +63,18 @@ class HealthView(APIView):
         return Response(data, status=status.HTTP_200_OK if ready_ok else status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
+class VersionView(APIView):
+    """GET /api/version/ — version publiée et commit déployé (public)."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        from django.conf import settings as dj_settings
+
+        return Response({"version": dj_settings.APP_VERSION, "commit": dj_settings.APP_COMMIT[:12]})
+
+
 class AdminHealthView(APIView):
     """GET /api/ops/health/ — détail des contrôles de santé (administrateurs)."""
 

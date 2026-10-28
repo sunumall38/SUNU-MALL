@@ -50,7 +50,12 @@ export function Footer() {
           ))}
         </div>
         <div className="mt-10 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/40 md:flex-row">
-          <p>© 2026 SUNU MALL — NEJ digital</p>
+          <p>
+            © 2026 SUNU MALL — NEJ digital
+            <span className="ml-2 text-white/30" title={__APP_COMMIT__ ? `commit ${__APP_COMMIT__}` : undefined}>
+              v{__APP_VERSION__}
+            </span>
+          </p>
           <div className="flex items-center gap-4">
             <Link to="/mentions-legales" className="transition-colors hover:text-white">
               Mentions légales

@@ -293,10 +293,16 @@ REST_FRAMEWORK = {
 AUTH_ANON_THROTTLE_RATE = "10/min"
 
 # DRF Spectacular (Swagger/OpenAPI)
+# Version publiée (fichier VERSION) et commit déployé — voir config/version.py.
+from config.version import read_commit, read_version  # noqa: E402
+
+APP_VERSION = read_version()
+APP_COMMIT = read_commit()
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "SUNU MALL API",
     "DESCRIPTION": "Marketplace sénégalais — API REST",
-    "VERSION": "1.0.0",
+    "VERSION": APP_VERSION,
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
 }
