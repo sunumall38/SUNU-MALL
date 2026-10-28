@@ -119,6 +119,7 @@ class AuthTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(User.objects.get(email=data['email']).phone, '+221771234567')
 
+    @override_settings(PHONE_OTP_PROVIDER="twilio")
     @patch('apps.auth.views.start_phone_verification')
     @patch('apps.auth.views.send_verification_email')
     def test_register_by_sms_starts_twilio_and_returns_verification_token(self, mocked_email, mocked_sms):
@@ -140,6 +141,7 @@ class AuthTests(TestCase):
         mocked_sms.assert_called_once_with('+221771234567')
         mocked_email.assert_not_called()
 
+    @override_settings(PHONE_OTP_PROVIDER="twilio")
     @patch('apps.auth.views.check_phone_verification', return_value=True)
     @patch('apps.auth.views.start_phone_verification')
     def test_sms_code_activates_new_account(self, mocked_sms, mocked_check):
@@ -164,6 +166,7 @@ class AuthTests(TestCase):
         self.assertTrue(user.phone_verified)
         mocked_check.assert_called_once_with('+221771234567', '123456')
 
+    @override_settings(PHONE_OTP_PROVIDER="twilio")
     @patch('apps.auth.views.start_phone_verification', side_effect=PhoneVerificationUnavailable())
     def test_sms_provider_failure_does_not_leave_blocked_account(self, mocked_sms):
         response = self.client.post(self.register_url, {
@@ -179,6 +182,7 @@ class AuthTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertFalse(User.objects.filter(email='sms-failure@example.com').exists())
 
+    @override_settings(PHONE_OTP_PROVIDER="twilio")
     @patch('apps.auth.views.check_phone_verification', return_value=False)
     @patch('apps.auth.views.start_phone_verification')
     def test_wrong_sms_code_does_not_activate_account(self, mocked_sms, mocked_check):
@@ -1065,3 +1069,17 @@ class PasswordResetTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+
+class RegistrationChannelTests(APITestCase):
+    def test_sms_refused_without_twilio_and_options_say_so(self):
+        with override_settings(PHONE_OTP_PROVIDER="local"):
+            options = self.client.get("/api/auth/options/")
+            response = self.client.post("/api/auth/register/", {
+                "email": "sms@example.com", "first_name": "A", "last_name": "B",
+                "phone": "771112233", "password": "MotDePasse!2026", "verification_channel": "sms",
+            }, format="json")
+        self.assertEqual(options.data, {"sms_verification": False})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("verification_channel", response.data)
+        self.assertFalse(User.objects.filter(email="sms@example.com").exists())

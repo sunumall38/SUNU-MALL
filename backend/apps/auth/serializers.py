@@ -38,6 +38,15 @@ class RegisterSerializer(serializers.ModelSerializer):
             "role_name", "verification_channel",
         )
 
+    def validate_verification_channel(self, value):
+        from django.conf import settings
+
+        if value == "sms" and settings.PHONE_OTP_PROVIDER != "twilio":
+            raise serializers.ValidationError(
+                "La vérification par SMS n'est pas disponible : choisissez l'e-mail."
+            )
+        return value
+
     def validate_phone(self, value):
         phone = normalize_senegal_phone(value)
         if User.objects.filter(phone=phone).exists():

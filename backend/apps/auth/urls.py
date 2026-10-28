@@ -20,6 +20,7 @@ from .views import (
     VerifyRegistrationPhoneView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
+    AuthOptionsView,
 )
 
 urlpatterns = [
@@ -32,6 +33,7 @@ urlpatterns = [
     path('guest-login/', GuestLoginView.as_view(), name='auth_guest_login'),
     path('set-password/', SetPasswordView.as_view(), name='auth_set_password'),
     path('change-password/', ChangePasswordView.as_view(), name='auth_change_password'),
+    path('options/', AuthOptionsView.as_view(), name='auth_options'),
     path('password-reset/', PasswordResetRequestView.as_view(), name='auth_password_reset'),
     path('password-reset/confirm/', PasswordResetConfirmView.as_view(), name='auth_password_reset_confirm'),
     path('request-phone-otp/', RequestPhoneOTPView.as_view(), name='auth_request_phone_otp'),

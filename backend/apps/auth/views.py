@@ -509,6 +509,16 @@ class ChangePasswordView(generics.GenericAPIView):
         return Response({"message": "Mot de passe modifié avec succès."})
 
 
+class AuthOptionsView(APIView):
+    """GET /api/auth/options/ — options d'inscription proposées sur cet environnement."""
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"sms_verification": settings.PHONE_OTP_PROVIDER == "twilio"})
+
+
 class PasswordResetRequestView(generics.GenericAPIView):
     """
     POST /api/auth/password-reset/  {"phone": "77…"} ou {"email": "…"}

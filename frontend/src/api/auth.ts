@@ -80,3 +80,8 @@ export function requestPasswordReset(payload: { phone?: string; email?: string }
 export function confirmPasswordReset(payload: { token: string; new_password: string; confirm_password: string }) {
   return apiPost<{ message: string }>("/auth/password-reset/confirm/", payload, { auth: false });
 }
+
+/** Options d'inscription de cet environnement (SMS disponible ou non). */
+export function getAuthOptions() {
+  return apiGet<{ sms_verification: boolean }>("/auth/options/", { auth: false });
+}
