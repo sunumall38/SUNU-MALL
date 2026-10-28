@@ -7,6 +7,8 @@ Permissions :
   résoudre / clore / rouvrir) exigent `complaints.*` ;
 - les tickets sont accessibles à leur requérant et au support.
 """
+import logging
+
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -14,8 +16,10 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
+from rest_framework.views import APIView
 
-from apps.security.utils import log_admin_event
+from apps.security.utils import _client_ip, log_admin_event
 from apps.users.permissions import HasPermission
 
 from .models import Complaint, ComplaintAttachment, ComplaintTimeline, SupportTicket, TicketMessage
@@ -23,6 +27,8 @@ from .pdf import complaint_dossier_pdf
 from .serializers import (
     ComplaintCreateSerializer, ComplaintSerializer, SupportTicketSerializer, TicketMessageSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class HasComplaintsView(HasPermission):
@@ -258,3 +264,54 @@ class SupportTicketViewSet(viewsets.ModelViewSet):
         ticket.status = SupportTicket.Status.CLOSED
         ticket.save()
         return Response(self.get_serializer(ticket).data)
+
+class ContactThrottle(AnonRateThrottle):
+    """Formulaire public : quelques messages par heure et par adresse IP."""
+
+    scope = "contact"
+    rate = "5/hour"
+
+
+class ContactMessageView(APIView):
+    """
+    POST /api/complaints/contact/  {"name", "email", "subject", "message"}
+
+    Enregistre le message puis prévient l'équipe par email (réponse directe
+    possible : Reply-To = l'adresse du visiteur). Le champ caché « website »
+    piège les robots : rempli, le message est ignoré en silence.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [ContactThrottle]
+
+    def post(self, request):
+        from django.conf import settings as dj_settings
+        from django.core.mail import EmailMessage
+
+        from .models import ContactMessage
+        from .serializers import ContactMessageSerializer
+
+        serializer = ContactMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        ok = {"message": "Merci ! Votre message a bien été envoyé. Nous vous répondons sous 24h ouvrées."}
+        if data.pop("website", ""):
+            return Response(ok, status=status.HTTP_201_CREATED)
+
+        contact = ContactMessage.objects.create(ip_address=_client_ip(request), **data)
+        recipient = getattr(dj_settings, "CONTACT_EMAIL", "") or dj_settings.ADMIN_NOTIFICATION_EMAIL
+        if recipient:
+            try:
+                EmailMessage(
+                    subject=f"[Contact SUNU MALL] {contact.subject or 'Demande'}",
+                    body=f"De : {contact.name} <{contact.email}>\n\n{contact.message}",
+                    from_email=dj_settings.DEFAULT_FROM_EMAIL,
+                    to=[recipient],
+                    reply_to=[contact.email],
+                ).send(fail_silently=False)
+                contact.notified = True
+                contact.save(update_fields=["notified"])
+            except Exception:  # noqa: BLE001 — le message reste enregistré
+                logger.exception("Notification du message de contact %s non envoyée", contact.id)
+        return Response(ok, status=status.HTTP_201_CREATED)

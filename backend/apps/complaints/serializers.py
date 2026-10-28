@@ -109,3 +109,11 @@ class SupportTicketSerializer(serializers.ModelSerializer):
         if not obj.assigned_to:
             return ""
         return obj.assigned_to.get_full_name() or obj.assigned_to.email
+
+class ContactMessageSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=120)
+    email = serializers.EmailField()
+    subject = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    message = serializers.CharField(max_length=5000)
+    # Pot de miel : invisible pour un humain, rempli par les robots.
+    website = serializers.CharField(required=False, allow_blank=True)

@@ -220,3 +220,27 @@ class TicketMessage(models.Model):
 
     def __str__(self):
         return f"Message {self.id} — {self.ticket.reference}"
+
+
+class ContactMessage(models.Model):
+    """Message envoyé depuis le formulaire public « Contactez-nous ».
+
+    Toujours enregistré (consultable dans l'administration Django) même si
+    l'email de notification ne part pas : aucun message n'est perdu.
+    """
+
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=120)
+    email = models.EmailField()
+    subject = models.CharField(max_length=200, blank=True)
+    message = models.TextField(max_length=5000)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    notified = models.BooleanField(default=False)
+    handled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} <{self.email}> — {self.subject or 'Demande'}"

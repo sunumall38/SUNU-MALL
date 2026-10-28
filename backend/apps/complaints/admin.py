@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import Complaint, ComplaintAttachment, ComplaintTimeline, SupportTicket, TicketMessage
+from .models import (
+    Complaint, ComplaintAttachment, ComplaintTimeline, ContactMessage, SupportTicket, TicketMessage,
+)
 
 
 class ComplaintTimelineInline(admin.TabularInline):
@@ -50,3 +52,10 @@ class SupportTicketAdmin(admin.ModelAdmin):
 class TicketMessageAdmin(admin.ModelAdmin):
     list_display = ["ticket", "author", "is_support_reply", "created_at"]
     list_filter = ["is_support_reply"]
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    list_display = ["created_at", "name", "email", "subject", "notified", "handled"]
+    list_filter = ["handled", "notified"]
+    search_fields = ["name", "email", "subject", "message"]
+    readonly_fields = ["name", "email", "subject", "message", "ip_address", "notified", "created_at"]
