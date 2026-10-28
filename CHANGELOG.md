@@ -6,6 +6,8 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 
 ## [Non publié]
 
+## [1.0.0] - 2026-10-28
+
 Première version de production : plateforme hébergée sur Render (API) et
 Cloudflare Pages (boutique), paiement réel Wave et Orange Money.
 
