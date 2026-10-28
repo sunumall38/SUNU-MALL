@@ -207,3 +207,28 @@ class ChangePasswordSerializer(serializers.Serializer):
                 "La confirmation ne correspond pas au nouveau mot de passe."
             )
         return attrs
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """Demande de lien « mot de passe oublié » : téléphone ou email."""
+
+    phone = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not (attrs.get("phone") or attrs.get("email")):
+            raise serializers.ValidationError("Indiquez votre numéro de téléphone ou votre email.")
+        return attrs
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                "La confirmation ne correspond pas au nouveau mot de passe."
+            )
+        return attrs

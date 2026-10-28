@@ -27,3 +27,16 @@ export function formatEta(seconds: number | null | undefined) {
   const minutes = Math.max(1, Math.ceil(seconds / 60));
   return `~${minutes} min`;
 }
+
+/**
+ * Chemin interne sûr pour une redirection après connexion (`?next=`).
+ * Refuse tout ce qui pourrait sortir du site : URL absolue, « //hôte »,
+ * barre oblique inverse (« /\hôte » est lu comme « //hôte » par les
+ * navigateurs) et caractères de contrôle.
+ */
+export function safeNextPath(raw: string | null | undefined): string | null {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
+  // eslint-disable-next-line no-control-regex
+  if (/[\\\u0000-\u001f]/.test(raw)) return null;
+  return raw;
+}

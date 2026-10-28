@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api";
 import * as authApi from "@/api/auth";
+import { safeNextPath } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
 import { roleHomePath } from "@/lib/roles";
 
@@ -37,10 +38,9 @@ export default function LoginPage() {
     try {
       const data = await authApi.login(values.phone, values.password);
       loginSuccess(data);
-      // `next` est une valeur non fiable (variable d'environnement du client) :
-      // on refuse toute redirection hors-site (protocole externe ou URL absolue).
-      const rawNext = searchParams.get("next");
-      const next = rawNext?.startsWith("/") ? rawNext : null;
+      // `next` est une valeur non fiable (paramètre d'URL) : on refuse toute
+      // redirection hors-site (URL absolue, « //hôte », « /\hôte »…).
+      const next = safeNextPath(searchParams.get("next"));
       navigate(next || roleHomePath(data.user.roles), { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
@@ -78,6 +78,9 @@ export default function LoginPage() {
           error={errors.phone?.message}
         />
         <Input label="Mot de passe" type="password" autoComplete="current-password" icon={Lock} {...register("password")} error={errors.password?.message} />
+        <Link to="/mot-de-passe-oublie" className="-mt-2 self-end text-sm font-medium text-orange hover:text-orange-dark">
+          Mot de passe oublié ?
+        </Link>
 
         {serverError && (
           <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-red-50 px-3.5 py-2.5 text-sm text-danger">

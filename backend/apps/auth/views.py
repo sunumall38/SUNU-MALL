@@ -2,9 +2,11 @@ import logging
 from datetime import timedelta
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import update_last_login
 from django.conf import settings
 from django.core import signing
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import APIException, AuthenticationFailed, PermissionDenied, ValidationError
@@ -21,10 +23,11 @@ from django.utils.encoding import force_str
 from .serializers import (
     RegisterSerializer, LoginSerializer, ResendVerificationSerializer,
     GuestCheckoutSerializer, SetPasswordSerializer, ChangePasswordSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer,
 )
 from .utils import (
     email_verification_token, hash_guest_login_token, send_guest_login_link,
-    send_verification_email,
+    send_password_reset_link, send_verification_email,
 )
 from .phone_verification import (
     PhoneVerificationUnavailable,
@@ -33,6 +36,7 @@ from .phone_verification import (
 )
 from apps.security.utils import log_security_event
 from apps.users.models import PhoneOTP, Token, User
+from apps.users.phone import normalize_senegal_phone
 
 logger = logging.getLogger(__name__)
 
@@ -503,6 +507,93 @@ class ChangePasswordView(generics.GenericAPIView):
         # Journal de sécurité §16 : changement du mot de passe du compte.
         log_security_event(user, "PASSWORD_CHANGE", request)
         return Response({"message": "Mot de passe modifié avec succès."})
+
+
+class PasswordResetRequestView(generics.GenericAPIView):
+    """
+    POST /api/auth/password-reset/  {"phone": "77…"} ou {"email": "…"}
+
+    Envoie un lien de réinitialisation à l'email du compte. Réponse identique
+    que le compte existe ou non, pour ne pas permettre l'énumération.
+    """
+    serializer_class = PasswordResetRequestSerializer
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AuthAnonRateThrottle]
+
+    GENERIC = (
+        "Si un compte correspond, un lien de réinitialisation vient d'être envoyé "
+        "à son adresse email. Pensez à vérifier vos courriers indésirables."
+    )
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = (serializer.validated_data.get("email") or "").strip()
+        phone = (serializer.validated_data.get("phone") or "").strip()
+        user = None
+        if email:
+            user = User.objects.filter(email__iexact=email).first()
+        elif phone:
+            try:
+                normalized = normalize_senegal_phone(phone)
+            except DjangoValidationError:
+                normalized = None
+            if normalized:
+                matches = User.objects.filter(phone=normalized)
+                user = matches.first() if matches.count() == 1 else None
+        if user is not None and user.is_active:
+            send_password_reset_link(user)
+        return Response({"message": self.GENERIC})
+
+
+class PasswordResetConfirmView(generics.GenericAPIView):
+    """
+    POST /api/auth/password-reset/confirm/
+    {"token": "...", "new_password": "...", "confirm_password": "..."}
+
+    Le lien est à usage unique. Toutes les sessions existantes sont fermées :
+    si le compte était compromis, l'intrus est déconnecté.
+    """
+    serializer_class = PasswordResetConfirmSerializer
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AuthAnonRateThrottle]
+
+    INVALID = "Ce lien est invalide ou a expiré. Refaites une demande de réinitialisation."
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        raw_token = serializer.validated_data["token"].strip()
+        token = (
+            Token.objects.select_related("user")
+            .filter(type=Token.TokenType.PASSWORD_RESET, token=hash_guest_login_token(raw_token))
+            .first()
+        )
+        if token is None or not token.is_valid() or not token.user.is_active:
+            raise ValidationError({"token": self.INVALID})
+        user = token.user
+        new_password = serializer.validated_data["new_password"]
+        try:
+            validate_password(new_password, user)
+        except DjangoValidationError as exc:
+            raise ValidationError({"new_password": list(exc.messages)})
+
+        consumed = Token.objects.filter(pk=token.pk, used_at__isnull=True).update(used_at=timezone.now())
+        if not consumed:
+            raise ValidationError({"token": self.INVALID})
+
+        user.set_password(new_password)
+        user.must_change_password = False
+        # Recevoir le lien prouve le contrôle de l'adresse email.
+        user.is_verified = True
+        user.save()
+
+        from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+        for outstanding in OutstandingToken.objects.filter(user=user):
+            BlacklistedToken.objects.get_or_create(token=outstanding)
+        log_security_event(user, "PASSWORD_CHANGE", request, metadata={"via": "password_reset"})
+        return Response({"message": "Mot de passe réinitialisé. Vous pouvez vous connecter."})
 
 
 def _send_phone_otp_notification(user, phone, plaintext_code):

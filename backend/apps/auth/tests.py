@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APITestCase
 from apps.kyc.models import SellerKYC
 from apps.users.models import User, Role, UserRole
 from apps.auth.utils import email_verification_token, send_verification_email
@@ -993,3 +993,75 @@ class SecurityLoggingTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(self._log("PASSWORD_CHANGE"))
+
+
+class PasswordResetTests(APITestCase):
+    """Parcours « mot de passe oublié » : lien unique par email."""
+
+    def setUp(self):
+        from django.core import mail
+
+        self.mail = mail
+        self.user = User.objects.create_user(
+            username="reset@example.com", email="reset@example.com", password="AncienMdp!2026",
+            phone="+221771234567", is_verified=True,
+        )
+
+    def _token_from_mail(self):
+        import re
+
+        body = self.mail.outbox[-1].body
+        return re.search(r"token=([\w-]+)", body).group(1)
+
+    def test_request_by_phone_sends_link_to_account_email(self):
+        response = self.client.post("/api/auth/password-reset/", {"phone": "77 123 45 67"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(self.mail.outbox), 1)
+        self.assertEqual(self.mail.outbox[0].to, ["reset@example.com"])
+        self.assertIn("/reinitialiser-mot-de-passe?token=", self.mail.outbox[0].body)
+
+    def test_unknown_account_gets_same_answer_and_no_mail(self):
+        known = self.client.post("/api/auth/password-reset/", {"email": "reset@example.com"}, format="json")
+        unknown = self.client.post("/api/auth/password-reset/", {"email": "nobody@example.com"}, format="json")
+        self.assertEqual(known.data, unknown.data)
+        self.assertEqual(len(self.mail.outbox), 1)
+
+    def test_confirm_sets_password_once_and_revokes_sessions(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        refresh = RefreshToken.for_user(self.user)
+        self.client.post("/api/auth/password-reset/", {"email": "reset@example.com"}, format="json")
+        token = self._token_from_mail()
+        payload = {"token": token, "new_password": "NouveauMdp!2026", "confirm_password": "NouveauMdp!2026"}
+        response = self.client.post("/api/auth/password-reset/confirm/", payload, format="json")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NouveauMdp!2026"))
+        again = self.client.post("/api/auth/password-reset/confirm/", payload, format="json")
+        self.assertEqual(again.status_code, 400)
+        old_session = self.client.post("/api/auth/token/refresh/", {"refresh": str(refresh)}, format="json")
+        self.assertEqual(old_session.status_code, 401)
+
+    def test_weak_password_is_refused_without_consuming_link(self):
+        self.client.post("/api/auth/password-reset/", {"email": "reset@example.com"}, format="json")
+        token = self._token_from_mail()
+        weak = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"token": token, "new_password": "12345678", "confirm_password": "12345678"},
+            format="json",
+        )
+        self.assertEqual(weak.status_code, 400)
+        ok = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"token": token, "new_password": "NouveauMdp!2026", "confirm_password": "NouveauMdp!2026"},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, 200)
+
+    def test_forged_token_is_refused(self):
+        response = self.client.post(
+            "/api/auth/password-reset/confirm/",
+            {"token": "faux", "new_password": "NouveauMdp!2026", "confirm_password": "NouveauMdp!2026"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)

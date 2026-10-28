@@ -249,6 +249,10 @@ TWILIO_HTTP_TIMEOUT_SECONDS = config("TWILIO_HTTP_TIMEOUT_SECONDS", default=10, 
 GUEST_LOGIN_LINK_TTL_MINUTES = config("GUEST_LOGIN_LINK_TTL_MINUTES", default=15, cast=int)
 # Délai minimal entre deux envois au même compte (anti-inondation de boîte mail).
 GUEST_LOGIN_LINK_COOLDOWN_SECONDS = config("GUEST_LOGIN_LINK_COOLDOWN_SECONDS", default=120, cast=int)
+# Lien « mot de passe oublié » : usage unique, courte durée, un envoi au plus
+# par période de refroidissement (la route est publique).
+PASSWORD_RESET_TTL_MINUTES = config("PASSWORD_RESET_TTL_MINUTES", default=30, cast=int)
+PASSWORD_RESET_COOLDOWN_SECONDS = config("PASSWORD_RESET_COOLDOWN_SECONDS", default=120, cast=int)
 
 # --- Affectation des courses ---
 # Un livreur ne reçoit une commande que s'il est à moins de ce rayon (km) de
@@ -403,6 +407,8 @@ DEFAULT_FROM_EMAIL = EMAIL_FROM_CONFIGURED or "SUNU MALL <noreply@sunumall.com>"
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 # Boîte de l'équipe marketplace qui reçoit les nouvelles demandes de boutique.
 ADMIN_NOTIFICATION_EMAIL = config("ADMIN_NOTIFICATION_EMAIL", default="").strip()
+# Boîte qui reçoit les messages du formulaire de contact (défaut : ADMIN_NOTIFICATION_EMAIL).
+CONTACT_EMAIL = config("CONTACT_EMAIL", default="").strip()
 
 # --- Paiement (Wave / Orange Money) ---
 # PAYMENT_SANDBOX doit être explicitement mis à False en production ET en
