@@ -38,6 +38,12 @@ class WishlistItem(models.Model):
         return f"{self.product.name} in wishlist"
 
 
+def _check_stock(variant, qty):
+    inventory = getattr(variant, "inventory", None)
+    if inventory is not None and inventory.available() < qty:
+        raise ValueError(f"Stock insuffisant pour « {variant.product.name} » (disponible : {inventory.available()}).")
+
+
 class Cart(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='cart')
@@ -48,14 +54,17 @@ class Cart(models.Model):
         return sum(item.subtotal() for item in self.items.all())
 
     def add_item(self, variant, qty=1):
-        inventory = getattr(variant, "inventory", None)
-        if inventory is not None and inventory.available() < qty:
-            raise ValueError(f"Stock insuffisant pour « {variant.product.name} » (disponible : {inventory.available()}).")
+        _check_stock(variant, qty)
         item, created = CartItem.objects.get_or_create(cart=self, product_variant=variant)
         new_quantity = (item.quantity + qty) if not created else qty
-        if inventory is not None and inventory.available() < new_quantity:
-            raise ValueError(f"Stock insuffisant pour « {variant.product.name} » (disponible : {inventory.available()}).")
+        _check_stock(variant, new_quantity)
         item.quantity = new_quantity
+        item.save()
+
+    def set_item_quantity(self, item, qty):
+        """Remplace la quantité d'une ligne, avec le même contrôle de stock que l'ajout."""
+        _check_stock(item.product_variant, qty)
+        item.quantity = qty
         item.save()
 
     def clear(self):
