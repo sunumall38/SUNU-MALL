@@ -32,7 +32,7 @@ COPY railway-entrypoint.sh /app/railway-entrypoint.sh
 COPY VERSION /app/VERSION
 
 RUN DJANGO_SETTINGS_MODULE=config.settings.dev python manage.py collectstatic --noinput \
-    && chmod +x /app/railway-entrypoint.sh
+    && chmod +x /app/railway-entrypoint.sh /app/render-start.sh
 
 EXPOSE 8000
 
