@@ -27,7 +27,8 @@ const schema = z.object({
   sku: z.string().optional(),
   initial_quantity: z.coerce.number().int().min(0).default(100),
 });
-type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
+type FormValues = z.output<typeof schema>;
 
 export default function AddProductPage() {
   const navigate = useNavigate();
@@ -46,7 +47,7 @@ export default function AddProductPage() {
     getValues,
     setValue,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { initial_quantity: 100 } });
+  } = useForm<FormInput, unknown, FormValues>({ resolver: zodResolver(schema), defaultValues: { initial_quantity: 100 } });
 
   async function handleGenerateDescription() {
     const values = getValues();
@@ -60,7 +61,7 @@ export default function AddProductPage() {
       const { description } = await iaApi.generateProductDescription({
         name: values.name,
         category: values.category || null,
-        price: values.base_price,
+        price: Number(values.base_price),
         store: values.store,
       });
       setValue("description", description);
@@ -96,7 +97,7 @@ export default function AddProductPage() {
       await catalogApi.createVariant({
         product: product.id,
         ...(values.sku?.trim() ? { sku: values.sku.trim() } : {}),
-        price: values.base_price,
+        price: Number(values.base_price),
         initial_quantity: values.initial_quantity,
       });
       if (imageFile) {

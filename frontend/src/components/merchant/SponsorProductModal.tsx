@@ -21,7 +21,8 @@ const schema = z
     message: "La date de fin doit être après la date de début",
     path: ["ends_at"],
   });
-type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
+type FormValues = z.output<typeof schema>;
 
 export function SponsorProductModal({
   product,
@@ -38,7 +39,7 @@ export function SponsorProductModal({
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({
+  } = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { starts_at: today, ends_at: inTwoWeeks, daily_budget: 2000 },
   });
