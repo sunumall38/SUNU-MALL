@@ -3,7 +3,7 @@
 | Brique | Où | Fichier de référence |
 | --- | --- | --- |
 | API Django | Render, service web Docker (offre gratuite) | `render.yaml`, `Dockerfile` |
-| PostgreSQL | Base durable (Neon gratuit ou Render payant) | variable `DATABASE_URL` |
+| PostgreSQL | Neon, projet `sunu-mall` (Frankfurt, gratuit, sans expiration) | variable `DATABASE_URL` |
 | Redis (temps réel du suivi de livraison) | Render Key Value gratuit | `render.yaml` |
 | Boutique React | Cloudflare Pages | `frontend/public/_headers` |
 | Images et pièces d'identité | Stockage compatible S3 (deux buckets) | variables `MINIO_*` / `KYC_*` |
@@ -24,20 +24,19 @@ Wave / Orange Money sont signés.
   perdu, mais l'attente est visible. Passer au plan *Starter* à l'ouverture.
 - **Pas de Shell** sur Render gratuit : le premier administrateur est créé au
   démarrage (variables `ADMIN_BOOTSTRAP_*`, étape 3).
-- La base PostgreSQL gratuite **de Render** est supprimée au bout de 30 jours
-  (+ 14 jours de grâce). D'où l'étape 1.
 
-## 1. Base de données durable
+## 1. Base de données durable (Neon)
 
-Recommandé : **Neon** (offre gratuite, sans carte bancaire, sans expiration).
+Neon : offre gratuite, sans carte bancaire, sans expiration. Le projet
+`sunu-mall` existe déjà sur le compte sunumall38@gmail.com (région Frankfurt,
+la même que Render).
 
-1. Créer un compte sur neon.tech, projet `sunu-mall`, région **Frankfurt**
-   (la même que Render, pour la latence).
-2. Copier la *connection string* (format `postgresql://…?sslmode=require`).
-3. Elle servira de `DATABASE_URL` à l'étape 3, à la place de la base Render.
-
-Sans Neon, on peut garder la base gratuite de Render pour une démonstration,
-en sachant qu'elle disparaît au bout de 30 jours.
+1. console.neon.tech → projet **sunu-mall** → bouton **Connect**.
+2. Décocher **Connection pooling** (Django garde ses connexions ouvertes ;
+   le pooler de Neon, en mode transaction, n'est pas fait pour ça).
+3. Copier la *connection string* (`postgresql://…neon.tech/neondb?sslmode=require`).
+   C'est un secret : la coller uniquement dans la variable `DATABASE_URL` de
+   Render (étape 3), jamais dans un fichier du dépôt ni dans une discussion.
 
 ## 2. Stockage des fichiers (S3)
 
@@ -56,12 +55,12 @@ du dépôt (`minioadmin`).
 ## 3. API sur Render
 
 1. render.com → **New → Blueprint** → dépôt `sunumall38/SUNU-MALL`, branche
-   `main`. Render lit `render.yaml` et propose le service web, la base et le
-   Key Value.
+   `main`. Render lit `render.yaml` et propose le service web et le Key Value.
 2. Renseigner les variables demandées :
 
    | Variable | Valeur |
    | --- | --- |
+   | `DATABASE_URL` | URL Neon de l'étape 1 |
    | `FRONTEND_URL` | `https://sunu-mall.pages.dev` (provisoire, corrigée à l'étape 5) |
    | `CORS_ALLOWED_ORIGINS` | la même adresse |
    | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` | identifiants OAuth du compte Gmail (encadré ci-dessous) |
@@ -86,16 +85,13 @@ du dépôt (`minioadmin`).
    compte sunumall38, puis *Exchange authorization code for tokens* : le
    **Refresh token** affiché est `GMAIL_REFRESH_TOKEN`.
 
-3. Base durable : dans le service web → *Environment*, remplacer
-   `DATABASE_URL` par l'URL Neon de l'étape 1 (on peut ensuite supprimer la
-   base Render).
-4. Lancer le déploiement. Au démarrage : migrations, enregistrement de la
+3. Lancer le déploiement. Au démarrage : migrations, enregistrement de la
    version, création de l'administrateur, traitements quotidiens.
-5. Vérifier :
+4. Vérifier :
    - `https://<service>.onrender.com/health/live/` → `{"status":"ok"}` ;
    - `/health/ready/` → `{"status":"ok"}` (base, Redis, stockage) ;
    - `/api/version/` → la version publiée (`1.0.0`) et le commit.
-6. Se connecter à l'administration avec le compte `ADMIN_BOOTSTRAP_*`,
+5. Se connecter à l'administration avec le compte `ADMIN_BOOTSTRAP_*`,
    changer le mot de passe, puis **supprimer `ADMIN_BOOTSTRAP_PASSWORD`**
    des variables Render.
 

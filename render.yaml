@@ -1,14 +1,12 @@
 # =========================================================
 # SUNU MALL — Blueprint Render (API Django)
 #
-# Offre gratuite de Render : un service web, une base PostgreSQL et un
-# Key Value (Redis). Le frontend est servi par Cloudflare Pages.
+# Offre gratuite de Render : un service web et un Key Value (Redis). La base
+# PostgreSQL est chez Neon, le frontend sur Cloudflare Pages.
 # Marche à suivre : docs/deploiement-render-cloudflare.md
 #
 # Limites de l'offre gratuite à connaître :
 #   - le service web s'endort après 15 minutes sans trafic ;
-#   - la base PostgreSQL gratuite expire 30 jours après sa création
-#     (utiliser une base durable pour la production, voir la doc) ;
 #   - pas de Shell : le premier administrateur est créé par
 #     manage.py bootstrap_admin à partir des variables ADMIN_BOOTSTRAP_* ;
 #   - pas de worker ni de tâche planifiée : les traitements quotidiens sont
@@ -45,13 +43,11 @@ services:
       # TLS terminé par Render ; ses contrôles de santé arrivent en HTTP.
       - key: SECURE_SSL_REDIRECT
         value: "False"
-      # Base PostgreSQL. La base gratuite de Render expire au bout de 30
-      # jours : pour la production, remplacer par l'URL d'une base durable
-      # (Render payant, ou Neon gratuit — voir docs/deploiement-render-cloudflare.md).
+      # Base PostgreSQL durable hébergée chez Neon (gratuite, n'expire pas,
+      # région Frankfurt). Coller l'URL « direct » (sans pooler) du projet
+      # Neon sunu-mall, avec ?sslmode=require — voir docs/deploiement-render-cloudflare.md.
       - key: DATABASE_URL
-        fromDatabase:
-          name: sunu-mall-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: sunu-mall-redis
@@ -131,11 +127,3 @@ services:
     # Accessible uniquement depuis le réseau privé de Render.
     ipAllowList: []
     maxmemoryPolicy: allkeys-lru
-
-databases:
-  - name: sunu-mall-db
-    plan: free
-    region: frankfurt
-    databaseName: sunu_mall
-    user: sunu_mall
-    postgresMajorVersion: "16"
