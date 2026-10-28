@@ -15,14 +15,13 @@ from .serializers import (
 )
 from apps.users.permissions import IsAdmin, IsStoreOwnerOrAdmin
 from apps.monetization.models import Notification, Subscription, SubscriptionPlan, SponsoredProduct
-from apps.kyc.models import SellerKYC, VerificationHistory
-from apps.kyc.utils import (
-    SELLER_KYC_SUBMITTED_STATUSES, record_kyc_audit,
-    seller_account_active, seller_kyc_submitted,
-)
+from apps.kyc.models import SellerKYC
+from apps.kyc.utils import seller_account_active
 from apps.monetization import services as monetization_services
 from apps.monetization.services import PRODUCT_LIMIT_EXCEEDED_MESSAGE
 from .notifications import notify_admin_store_created
+from apps.kyc.models import VerificationHistory
+from apps.kyc.utils import SELLER_KYC_SUBMITTED_STATUSES, record_kyc_audit, seller_kyc_submitted
 
 
 def _active_product_limit(store):
