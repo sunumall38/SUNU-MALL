@@ -1,9 +1,11 @@
 from decimal import Decimal
 import json
+import logging
 import time
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.mail import send_mail
 from django.db import models, transaction
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -43,6 +45,9 @@ from apps.shopping.models import CartItem
 from apps.users.models import Role, UserRole
 from apps.users.phone import normalize_senegal_phone
 from apps.kyc.utils import driver_kyc_verified
+
+
+logger = logging.getLogger(__name__)
 
 
 class AddressViewSet(viewsets.ModelViewSet):
@@ -1522,6 +1527,25 @@ def _notify_payout_change(request, partner, previous):
         ),
         metadata={"kind": "partner_payout_changed"},
     ).send()
+    # L'e-mail au partenaire part vers le compte éventuellement piraté :
+    # l'administration est prévenue aussi, avant de régler la prochaine facture.
+    recipient = (getattr(settings, "ADMIN_NOTIFICATION_EMAIL", "") or "").strip()
+    if recipient:
+        try:
+            send_mail(
+                f"[SUNU MALL] Coordonnées de versement modifiées : {partner.name}",
+                (
+                    f"Le partenaire {partner.name} a modifié ses coordonnées de versement "
+                    f"({partner.get_payout_method_display()}, {_mask(previous)} → "
+                    f"{_mask(partner.payout_account)}, titulaire : {partner.payout_holder}).\n\n"
+                    "Vérifiez ce changement auprès du partenaire avant de régler sa prochaine facture."
+                ),
+                settings.DEFAULT_FROM_EMAIL,
+                [recipient],
+                fail_silently=True,
+            )
+        except Exception:  # noqa: BLE001 — l'alerte ne doit jamais bloquer la modification
+            logger.exception("Alerte admin de changement de versement non envoyée")
 
 
 class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
@@ -1535,8 +1559,12 @@ class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if not self.request.user.is_admin():
-            raise PermissionDenied("Seul un administrateur gère les factures partenaires.")
+        # Coordonnées bancaires et validation des versements : réservées au
+        # super admin et à l'administration financière, pas aux autres
+        # sous-rôles (support, KYC, marketplace, livraison).
+        user = self.request.user
+        if not (user.is_super_admin() or user.has_role(Role.RoleName.ADMIN_FINANCE)):
+            raise PermissionDenied("Seule l'administration financière gère les factures partenaires.")
         qs = PartnerInvoice.objects.select_related("partner").order_by("-period_end", "reference")
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -1551,9 +1579,11 @@ class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"], url_path="mark-paid")
     def mark_paid(self, request, pk=None):
         invoice = self.get_object()
-        if invoice.status == PartnerInvoice.Status.PAID:
-            raise ValidationError("Cette facture est déjà marquée payée.")
-        invoice.mark_paid(user=request.user)
+        with transaction.atomic():
+            invoice = PartnerInvoice.objects.select_for_update().get(pk=invoice.pk)
+            if invoice.status == PartnerInvoice.Status.PAID:
+                raise ValidationError("Cette facture est déjà marquée payée.")
+            invoice.mark_paid(user=request.user)
         return Response(PartnerInvoiceSerializer(invoice).data)
 
 
@@ -1609,12 +1639,17 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         """
         partner = self._partner(request)
         if request.method == "PATCH":
-            previous = partner.payout_account
+            # Ré-authentification : une session volée ne suffit pas pour
+            # détourner les prochains versements.
+            current_password = (request.data or {}).get("current_password") or ""
+            if not request.user.check_password(current_password):
+                raise ValidationError({"current_password": "Mot de passe actuel incorrect."})
+            before = (partner.payout_method, partner.payout_account, partner.payout_holder)
             serializer = PartnerPayoutSerializer(partner, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save(payout_updated_at=timezone.now())
-            if partner.payout_account != previous:
-                _notify_payout_change(request, partner, previous)
+            if (partner.payout_method, partner.payout_account, partner.payout_holder) != before:
+                _notify_payout_change(request, partner, before[1])
         return Response(PartnerPayoutSerializer(partner).data)
 
     def stats(self, request):

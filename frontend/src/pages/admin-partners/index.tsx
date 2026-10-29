@@ -31,6 +31,14 @@ const PAYOUT_LABEL: Record<string, string> = {
   bank_transfer: "IBAN",
 };
 
+/** Un changement de compte de versement récent est le signe classique d'un détournement. */
+const RECENT_PAYOUT_CHANGE_DAYS = 7;
+
+function payoutChangedRecently(updatedAt: string | null) {
+  if (!updatedAt) return false;
+  return Date.now() - new Date(updatedAt).getTime() < RECENT_PAYOUT_CHANGE_DAYS * 24 * 60 * 60 * 1000;
+}
+
 function PendingInvoices() {
   const { data: invoices, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartnerInvoices("pending"), []);
   const [payingId, setPayingId] = useState<number | null>(null);
@@ -80,6 +88,12 @@ function PendingInvoices() {
               ) : (
                 <p className="text-xs font-semibold text-orange-dark">
                   Coordonnées de versement non renseignées par le partenaire.
+                </p>
+              )}
+              {payoutChangedRecently(invoice.partner_payout.payout_updated_at) && (
+                <p className="text-xs font-semibold text-danger">
+                  Coordonnées modifiées le {formatDate(invoice.partner_payout.payout_updated_at!)} : confirmez-les auprès
+                  du partenaire avant le virement.
                 </p>
               )}
             </div>

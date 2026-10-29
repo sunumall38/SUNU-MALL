@@ -185,6 +185,13 @@ class DeliveryPartnerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "score", "created_at", "updated_at"]
 
+    def validate_status(self, value):
+        # Même règle que l'action « activate » : sans compte lié, personne ne
+        # pourrait piloter l'Espace Partenaire d'une entreprise active.
+        if value == DeliveryPartner.Status.ACTIVE and getattr(self.instance, "user_id", None) is None:
+            raise serializers.ValidationError("Créez d'abord le compte partenaire avant d'activer l'entreprise.")
+        return value
+
 
 class PartnerProfileUpdateSerializer(DeliveryPartnerSerializer):
     """Profil modifiable par le partenaire lui-même : coordonnées uniquement.
@@ -261,6 +268,12 @@ class PartnerZoneUpdateSerializer(PartnerZonePricingSerializer):
         read_only_fields = ["id", "zone", "zone_name", "client_fee", "partner_cost", "margin"]
 
 
+def _iban_checksum_ok(iban):
+    """Clé de contrôle IBAN (ISO 13616) : mod 97 du numéro réarrangé égal à 1."""
+    rearranged = iban[4:] + iban[:4]
+    return int("".join(str(int(char, 36)) for char in rearranged)) % 97 == 1
+
+
 class PartnerPayoutSerializer(serializers.ModelSerializer):
     """Coordonnées de versement du partenaire (Wave, Orange Money ou IBAN)."""
 
@@ -279,14 +292,21 @@ class PartnerPayoutSerializer(serializers.ModelSerializer):
         account = (attrs.get("payout_account", getattr(self.instance, "payout_account", "")) or "").strip()
         if method == DeliveryPartner.PayoutMethod.BANK_TRANSFER:
             iban = re.sub(r"\s", "", account).upper()
-            if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", iban):
-                raise serializers.ValidationError({"payout_account": "IBAN invalide (ex. SN08 SN01 0015 2000 0000 1234 5678)."})
+            # Format puis clé de contrôle (mod 97) : une faute de frappe
+            # enverrait le versement vers un compte inexistant ou étranger.
+            if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", iban) or not _iban_checksum_ok(iban):
+                raise serializers.ValidationError({"payout_account": "IBAN invalide (ex. SN04 SN01 0015 2000 0000 1234 5678)."})
             attrs["payout_account"] = iban
         else:
             try:
-                attrs["payout_account"] = normalize_senegal_phone(account)
+                number = normalize_senegal_phone(account)
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"payout_account": exc.messages})
+            # Wave et Orange Money exigent un numéro mobile (70, 75, 76, 77, 78),
+            # pas une ligne fixe (33…).
+            if not re.fullmatch(r"\+2217[05678]\d{7}", number):
+                raise serializers.ValidationError({"payout_account": "Indiquez un numéro mobile (70, 75, 76, 77 ou 78)."})
+            attrs["payout_account"] = number
         attrs["payout_holder"] = (attrs.get("payout_holder") or getattr(self.instance, "payout_holder", "")).strip()
         if not method or not attrs["payout_holder"]:
             raise serializers.ValidationError("Moyen de paiement, compte et titulaire sont obligatoires.")

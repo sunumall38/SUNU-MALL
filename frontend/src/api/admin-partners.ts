@@ -48,10 +48,16 @@ export function rotateAdminPartnerApiKey(id: string) {
   return apiPost<{ api_key: string; api_key_last4: string }>(`/orders/partners/${id}/rotate-api-key/`);
 }
 
-/** Factures partenaires (toutes entreprises), filtrables par statut. */
+/** Factures partenaires (toutes entreprises, toutes les pages), filtrables par statut. */
 export async function listAdminPartnerInvoices(status?: "pending" | "paid") {
-  const data = await apiGet<Paginated<PartnerInvoice>>(`/orders/partner-invoices/${status ? `?status=${status}` : ""}`);
-  return data.results;
+  const invoices: PartnerInvoice[] = [];
+  for (let page = 1; ; page += 1) {
+    const params = new URLSearchParams({ page: String(page) });
+    if (status) params.set("status", status);
+    const data = await apiGet<Paginated<PartnerInvoice>>(`/orders/partner-invoices/?${params.toString()}`);
+    invoices.push(...data.results);
+    if (!data.next) return invoices;
+  }
 }
 
 /** À appeler une fois le virement au partenaire effectué. */

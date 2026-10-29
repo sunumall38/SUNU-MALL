@@ -1127,6 +1127,9 @@ class PartnerSpaceApiTests(TestCase):
         self._as(self.admin)
         response = self.client.post(f"/api/orders/partners/{company.id}/activate/", {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # La modification directe du statut obéit à la même règle.
+        response = self.client.patch(f"/api/orders/partners/{company.id}/", {"status": "active"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         company.refresh_from_db()
         self.assertEqual(company.status, DeliveryPartner.Status.INACTIVE)
 

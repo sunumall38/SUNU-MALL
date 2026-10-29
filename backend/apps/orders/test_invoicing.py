@@ -2,7 +2,7 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -64,7 +64,9 @@ class PartnerInvoicingTests(TestCase):
         in_progress = self._delivery(None, status_=Delivery.Status.IN_TRANSIT)
         self._delivery(date(2026, 10, 10), partner=self.other_partner)
 
-        created = generate_partner_invoices(today=TODAY)
+        # L'e-mail de facture part après validation de la transaction.
+        with self.captureOnCommitCallbacks(execute=True):
+            created = generate_partner_invoices(today=TODAY)
 
         self.assertEqual(len(created), 2)
         invoice = PartnerInvoice.objects.get(partner=self.partner)
@@ -83,6 +85,21 @@ class PartnerInvoicingTests(TestCase):
         self.assertTrue(
             Notification.objects.filter(user=self.partner_user, metadata__kind="partner_invoice").exists()
         )
+
+    def test_invoice_email_not_sent_when_transaction_rolls_back(self):
+        from django.db import transaction
+
+        self._delivery(date(2026, 10, 3))
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            try:
+                with transaction.atomic():
+                    generate_partner_invoices(today=TODAY)
+                    raise RuntimeError("échec plus loin dans les tâches quotidiennes")
+            except RuntimeError:
+                pass
+        self.assertEqual(callbacks, [])
+        self.assertFalse(PartnerInvoice.objects.exists())
+        self.assertFalse(Notification.objects.filter(metadata__kind="partner_invoice").exists())
 
     def test_generation_is_idempotent_and_catches_up_late_deliveries(self):
         self._delivery(date(2026, 10, 3))
@@ -160,7 +177,8 @@ class PartnerPayoutDetailsTests(TestCase):
 
         response = self.client.patch(
             "/api/orders/partner/banks/",
-            {"payout_method": "wave", "payout_account": "77 123 45 67", "payout_holder": " Aliou Fall "},
+            {"payout_method": "wave", "payout_account": "77 123 45 67", "payout_holder": " Aliou Fall ",
+             "current_password": "x"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
@@ -178,22 +196,69 @@ class PartnerPayoutDetailsTests(TestCase):
     def test_iban_is_normalized_and_invalid_values_rejected(self):
         ok = self.client.patch(
             "/api/orders/partner/banks/",
-            {"payout_method": "bank_transfer", "payout_account": "sn08 sn01 0015 2000 0000 1234 5678",
-             "payout_holder": "CityCourier SARL"},
+            {"payout_method": "bank_transfer", "payout_account": "sn04 sn01 0015 2000 0000 1234 5678",
+             "payout_holder": "CityCourier SARL", "current_password": "x"},
             format="json",
         )
         self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.data)
         self.partner.refresh_from_db()
-        self.assertEqual(self.partner.payout_account, "SN08SN0100152000000012345678")
+        self.assertEqual(self.partner.payout_account, "SN04SN0100152000000012345678")
 
         for payload in (
             {"payout_method": "bank_transfer", "payout_account": "1234", "payout_holder": "X"},
             {"payout_method": "orange_money", "payout_account": "12", "payout_holder": "X"},
             {"payout_method": "wave", "payout_account": "771234567", "payout_holder": ""},
             {"payout_method": "paypal", "payout_account": "771234567", "payout_holder": "X"},
+            # Clé de contrôle IBAN fausse (SN08 au lieu de SN04).
+            {"payout_method": "bank_transfer", "payout_account": "SN08SN0100152000000012345678", "payout_holder": "X"},
+            # Ligne fixe : pas de compte Wave / Orange Money possible.
+            {"payout_method": "wave", "payout_account": "33 800 00 00", "payout_holder": "X"},
         ):
-            response = self.client.patch("/api/orders/partner/banks/", payload, format="json")
+            response = self.client.patch(
+                "/api/orders/partner/banks/", {**payload, "current_password": "x"}, format="json",
+            )
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
+
+    def test_payout_change_requires_current_password(self):
+        payload = {"payout_method": "wave", "payout_account": "77 123 45 67", "payout_holder": "Aliou Fall"}
+        for password in (None, "mauvais"):
+            data = dict(payload) if password is None else {**payload, "current_password": password}
+            response = self.client.patch("/api/orders/partner/banks/", data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("current_password", response.data)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.payout_account, "")
+
+    @override_settings(ADMIN_NOTIFICATION_EMAIL="ops@sunumall.test")
+    def test_holder_change_alone_is_traced_and_admins_alerted(self):
+        from django.core import mail
+        from apps.security.models import SecurityLog
+
+        self.partner.payout_method = DeliveryPartner.PayoutMethod.WAVE
+        self.partner.payout_account = "+221771234567"
+        self.partner.payout_holder = "Aliou Fall"
+        self.partner.save()
+        response = self.client.patch(
+            "/api/orders/partner/banks/", {"payout_holder": "Autre Titulaire", "current_password": "x"}, format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertTrue(SecurityLog.objects.filter(action="PARTNER_PAYOUT_CHANGED").exists())
+        alerts = [m for m in mail.outbox if "ops@sunumall.test" in m.to]
+        self.assertEqual(len(alerts), 1)
+        self.assertNotIn("771234567", alerts[0].body)
+
+    def test_admin_support_cannot_see_partner_invoices(self):
+        Role.objects.get_or_create(name=Role.RoleName.ADMIN_SUPPORT)
+        PartnerInvoice.objects.create(
+            partner=self.partner, status=PartnerInvoice.Status.PENDING,
+            period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), total_due=Decimal("800"),
+        )
+        support = User.objects.create_user(username="s@ex.com", email="s@ex.com", password="x")
+        UserRole.objects.create(user=support, role=Role.objects.get(name=Role.RoleName.ADMIN_SUPPORT))
+        self.client.force_authenticate(support)
+        self.assertEqual(
+            self.client.get("/api/orders/partner-invoices/?status=pending").status_code, status.HTTP_403_FORBIDDEN,
+        )
 
     def test_admin_sees_payout_details_on_invoices(self):
         self.partner.payout_method = DeliveryPartner.PayoutMethod.ORANGE_MONEY

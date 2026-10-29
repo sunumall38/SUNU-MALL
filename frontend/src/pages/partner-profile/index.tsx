@@ -21,7 +21,7 @@ const STATUS_LABEL: Record<PartnerStatus, string> = {
 const PAYOUT_METHODS: { id: PartnerPayoutMethod; label: string; accountLabel: string; placeholder: string }[] = [
   { id: "wave", label: "Wave", accountLabel: "Numéro Wave", placeholder: "77 123 45 67" },
   { id: "orange_money", label: "Orange Money", accountLabel: "Numéro Orange Money", placeholder: "77 123 45 67" },
-  { id: "bank_transfer", label: "Virement bancaire", accountLabel: "IBAN", placeholder: "SN08 SN01 0015 2000 0000 1234 5678" },
+  { id: "bank_transfer", label: "Virement bancaire", accountLabel: "IBAN", placeholder: "SN04 SN01 0015 2000 0000 1234 5678" },
 ];
 
 function PayoutCard() {
@@ -29,6 +29,7 @@ function PayoutCard() {
   const [method, setMethod] = useState<PartnerPayoutMethod>("wave");
   const [account, setAccount] = useState("");
   const [holder, setHolder] = useState("");
+  const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -43,7 +44,13 @@ function PayoutCard() {
     setSaving(true);
     setMessage(null);
     try {
-      await partnerApi.updatePartnerPayout({ payout_method: method, payout_account: account, payout_holder: holder });
+      await partnerApi.updatePartnerPayout({
+        payout_method: method,
+        payout_account: account,
+        payout_holder: holder,
+        current_password: password,
+      });
+      setPassword("");
       setMessage({ ok: true, text: "Coordonnées enregistrées. Une confirmation vous a été envoyée par e-mail." });
       refetch();
     } catch (err) {
@@ -86,6 +93,14 @@ function PayoutCard() {
           </div>
           <Input label={current.accountLabel} value={account} onChange={(e) => setAccount(e.target.value)} placeholder={current.placeholder} />
           <Input label="Titulaire du compte" value={holder} onChange={(e) => setHolder(e.target.value)} placeholder="Nom de l'entreprise ou du gérant" />
+          <Input
+            label="Votre mot de passe"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            hint="Demandé à chaque modification, pour protéger vos versements."
+          />
           {message && (
             <p
               className={
@@ -98,7 +113,7 @@ function PayoutCard() {
             </p>
           )}
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={save} loading={saving} disabled={!account.trim() || !holder.trim()}>
+            <Button onClick={save} loading={saving} disabled={!account.trim() || !holder.trim() || !password}>
               Enregistrer les coordonnées
             </Button>
             {payout?.payout_updated_at && (

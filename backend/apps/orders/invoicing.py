@@ -97,7 +97,10 @@ def create_invoice_for_partner(partner, period_start, period_end, today=None):
         for delivery in deliveries:
             delivery.invoice = invoice
         Delivery.objects.bulk_update(deliveries, ["invoice", "partner_cost"])
-    _notify(invoice)
+        # Envoi après validation : appelée depuis run_daily_tasks (transaction
+        # englobante), une facture annulée par un échec plus loin ne doit pas
+        # avoir déjà été envoyée au partenaire.
+        transaction.on_commit(lambda: _notify(invoice))
     return invoice
 
 

@@ -19,8 +19,16 @@ export function getPartnerPayout() {
   return apiGet<PartnerPayout>("/orders/partner/banks/");
 }
 
-/** Un changement est tracé et confirmé par e-mail au partenaire. */
-export function updatePartnerPayout(payload: Pick<PartnerPayout, "payout_account" | "payout_holder"> & { payout_method: PartnerPayoutMethod }) {
+/**
+ * Un changement exige le mot de passe du compte ; il est tracé, confirmé par
+ * e-mail au partenaire et signalé à l'administration.
+ */
+export function updatePartnerPayout(
+  payload: Pick<PartnerPayout, "payout_account" | "payout_holder"> & {
+    payout_method: PartnerPayoutMethod;
+    current_password: string;
+  },
+) {
   return apiPatch<PartnerPayout>("/orders/partner/banks/", payload);
 }
 

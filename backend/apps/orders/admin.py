@@ -1,4 +1,4 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from .models import (
     DeliveryZone, Driver, Delivery, DeliveryTracking, DeliveryEvent,
     DeliveryPartner, PartnerZonePricing, PartnerInvoice,
@@ -16,7 +16,15 @@ class DeliveryPartnerAdmin(admin.ModelAdmin):
 
     @admin.action(description="Activer les partenaires sélectionnés")
     def activate(self, request, queryset):
-        queryset.update(status=DeliveryPartner.Status.ACTIVE)
+        # Sans compte lié, un partenaire actif ne pourrait pas être piloté.
+        skipped = queryset.filter(user__isnull=True).count()
+        queryset.filter(user__isnull=False).update(status=DeliveryPartner.Status.ACTIVE)
+        if skipped:
+            self.message_user(
+                request,
+                f"{skipped} partenaire(s) sans compte lié non activé(s) : créez d'abord leur compte.",
+                level=messages.WARNING,
+            )
 
     @admin.action(description="Suspendre les partenaires sélectionnés")
     def suspend(self, request, queryset):
