@@ -10,7 +10,7 @@ const CONTACT_CARDS = [
   { icon: Phone, title: "Téléphone", lines: ["+221 76 187 27 73"], href: "tel:+221761872773" },
   { icon: Mail, title: "Email", lines: ["sunumall38@gmail.com"], href: "mailto:sunumall38@gmail.com" },
   { icon: MapPin, title: "Adresse", lines: ["Liberté 6 Extension, Villa n° 144, VDN", "Dakar, Sénégal"] },
-  { icon: Clock, title: "Horaires", lines: ["Lun – Sam : 8h à 20h", "Dimanche : 9h à 13h"] },
+  { icon: Clock, title: "Horaires", lines: ["Lun – Ven : 9h à 18h", "Samedi : 9h à 13h · Dimanche : fermé"] },
 ];
 
 const FAQ = [
@@ -174,7 +174,7 @@ export default function ContactPage() {
             </div>
             <div>
               <p className="font-display text-lg font-bold text-white">Besoin d'une réponse immédiate ?</p>
-              <p className="mt-1 text-sm text-white/60">Notre assistant Sunu Mall et les conseillers répondent 7j/7.</p>
+              <p className="mt-1 text-sm text-white/60">Nos conseillers vous répondent du lundi au samedi, aux horaires d’ouverture.</p>
             </div>
           </div>
           <a href="#support-chat" className="btn-orange inline-flex shrink-0 items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold">

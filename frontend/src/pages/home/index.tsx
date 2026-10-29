@@ -31,7 +31,7 @@ const WHY_ITEMS = [
   { icon: Truck, title: "Livraison rapide", desc: "Méthode rapide au Sénégal" },
   { icon: Shield, title: "Paiement sécurisé", desc: "100% sécurisé" },
   { icon: Tag, title: "Meilleurs prix", desc: "Promotions chaque jour" },
-  { icon: Headphones, title: "Support 24/7", desc: "Assistance dédiée" },
+  { icon: Headphones, title: "Support réactif", desc: "Réponse sous 24 h ouvrées" },
   { icon: Zap, title: "Satisfait ou remboursé", desc: "Politique de retour" },
 ];
 
@@ -137,7 +137,7 @@ export default function HomePage() {
               {[
                 { icon: Truck, title: "Livraison rapide", sub: "partout au Sénégal" },
                 { icon: Shield, title: "Paiement sécurisé", sub: "Wave, Orange Money, CB" },
-                { icon: Headphones, title: "Support 24/7", sub: "Nous sommes là" },
+                { icon: Headphones, title: "Support réactif", sub: "Du lundi au samedi" },
               ].map(({ icon: Icon, title, sub }) => (
                 <div key={title} className="flex items-center gap-2">
                   <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white shadow-sm">
