@@ -25,6 +25,7 @@ Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques 
 sunu-mall/
 ├── backend/            # API REST - Django + Django REST Framework + Celery
 ├── frontend/           # Boutique publique + espaces vendeur/admin/livreur - React + Vite (SPA responsive)
+├── mobile/             # Application mobile clients & livreurs - React Native (Expo) — voir mobile/README.md
 ├── infra/              # Configuration Docker Compose, Nginx, Variables d'env & Monitoring
 │   ├── env/            # Variables d'environnement templates (dev, prod, staging)
 │   ├── nginx/          # Configuration du reverse proxy de routage
