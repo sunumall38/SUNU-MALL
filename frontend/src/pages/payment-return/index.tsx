@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { Clock, CreditCard, XCircle } from "lucide-react";
+import { Clock, CreditCard, Smartphone, XCircle } from "lucide-react";
 import * as paymentsApi from "@/api/payments";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -25,6 +25,41 @@ function backDestination(payment: Payment): { to: string; label: string } {
  * directe). Tant qu'il est « en attente », la page revérifie régulièrement.
  */
 export default function PaymentReturnPage() {
+  const [searchParams] = useSearchParams();
+  // Paiement lancé depuis l'appli mobile (`&app=1`) : le navigateur n'est
+  // pas connecté au compte, c'est l'appli qui vérifie le paiement.
+  if (searchParams.get("app") === "1") {
+    return <AppPaymentReturn paymentId={searchParams.get("payment")} failed={searchParams.get("error") === "1"} />;
+  }
+  return <WebPaymentReturn />;
+}
+
+function AppPaymentReturn({ paymentId, failed }: { paymentId: string | null; failed: boolean }) {
+  const appLink = paymentId ? `sunumall://client/payment/${encodeURIComponent(paymentId)}` : "sunumall://";
+  return (
+    <div className="mx-auto flex max-w-md flex-col gap-6 py-6">
+      <Card className="flex flex-col items-center gap-4 py-8 text-center">
+        <span className="grid h-14 w-14 place-items-center rounded-full bg-accent">
+          <Smartphone className="h-8 w-8 text-orange" />
+        </span>
+        <p className="font-semibold text-ink">
+          {failed ? "Le paiement n'a pas abouti" : "Retournez dans l'appli Sunu Mall"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {failed
+            ? "Revenez dans l'appli Sunu Mall pour réessayer."
+            : "La confirmation de votre paiement s'affiche dans l'appli."}
+        </p>
+        <a href={appLink}>
+          <Button>Ouvrir l'appli Sunu Mall</Button>
+        </a>
+        <p className="text-xs text-muted-foreground">Si rien ne se passe, ouvrez simplement l'appli.</p>
+      </Card>
+    </div>
+  );
+}
+
+function WebPaymentReturn() {
   const [searchParams] = useSearchParams();
   const paymentId = searchParams.get("payment");
   const providerReportedError = searchParams.get("error") === "1";
