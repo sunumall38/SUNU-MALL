@@ -15,7 +15,7 @@ import type { PartnerZonePricing } from "@/types";
 export default function PartnerZonesPage() {
   const { data: zones, loading, error, refetch } = useAsync(() => partnerApi.listPartnerZones(), []);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({ client_fee: "", partner_cost: "", estimated_delay_minutes: "", max_weight_kg: "", is_available: true });
+  const [draft, setDraft] = useState({ estimated_delay_minutes: "", max_weight_kg: "", is_available: true });
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -23,8 +23,6 @@ export default function PartnerZonesPage() {
     setEditingId(zone.id);
     setErrorMessage(null);
     setDraft({
-      client_fee: zone.client_fee,
-      partner_cost: zone.partner_cost,
       estimated_delay_minutes: String(zone.estimated_delay_minutes),
       max_weight_kg: zone.max_weight_kg,
       is_available: zone.is_available,
@@ -37,8 +35,6 @@ export default function PartnerZonesPage() {
     setErrorMessage(null);
     try {
       await partnerApi.updatePartnerZone(editingId, {
-        client_fee: draft.client_fee,
-        partner_cost: draft.partner_cost,
         estimated_delay_minutes: parseInt(draft.estimated_delay_minutes, 10) || 0,
         max_weight_kg: draft.max_weight_kg,
         is_available: draft.is_available,
@@ -63,7 +59,8 @@ export default function PartnerZonesPage() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Le client paie le <strong className="text-ink">tarif client</strong>, vous recevez le{" "}
-          <strong className="text-ink">coût partenaire</strong> ; la marge Sunu Mall est calculée automatiquement.
+          <strong className="text-ink">coût partenaire</strong>. Ces tarifs sont fixés avec Sunu Mall ; vous ajustez ici le
+          délai, le poids maximum et la disponibilité de chaque zone.
         </p>
       </div>
 
@@ -84,28 +81,10 @@ export default function PartnerZonesPage() {
 
               {editingId === zone.id ? (
                 <>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-muted-foreground">Tarif client (FCFA)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      className="focus-ring w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink"
-                      value={draft.client_fee}
-                      onChange={(e) => setDraft((d) => ({ ...d, client_fee: e.target.value }))}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-muted-foreground">Coût partenaire (FCFA)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="50"
-                      className="focus-ring w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink"
-                      value={draft.partner_cost}
-                      onChange={(e) => setDraft((d) => ({ ...d, partner_cost: e.target.value }))}
-                    />
-                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Tarif client {formatPrice(zone.client_fee)} · coût partenaire {formatPrice(zone.partner_cost)} — pour
+                    modifier un tarif, contactez l'administration Sunu Mall.
+                  </p>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1">
                       <span className="text-xs font-medium text-muted-foreground">Délai estimé (min)</span>

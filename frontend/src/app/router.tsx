@@ -155,6 +155,7 @@ export const router = createBrowserRouter([
       { path: "/partner-finances", lazy: page(() => import("@/pages/partner-finances")) },
       { path: "/partner-profile", lazy: page(() => import("@/pages/partner-profile")) },
       { path: "/partner-notifications", lazy: page(() => import("@/pages/notifications")) },
+      { path: "/partner-password-change", lazy: page(() => import("@/pages/driver-password-change")) },
     ],
   },
 

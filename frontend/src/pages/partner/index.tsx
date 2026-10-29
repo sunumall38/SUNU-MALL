@@ -27,15 +27,16 @@ const PARTNER_STATUS_TONE: Record<PartnerStatus, string> = {
 export default function PartnerDashboardPage() {
   const { data: profile, loading: loadingProfile } = useAsync(() => partnerApi.getPartnerProfile(), []);
   const { data: stats, loading: loadingStats } = useAsync(() => partnerApi.getPartnerStats(), []);
-  const { data: deliveries, loading: loadingDeliveries } = useAsync(() => partnerApi.listPartnerDeliveries(), []);
+  // Deux requêtes légères (1re page) au lieu de tout l'historique.
+  const { data: recentPage, loading: loadingRecent } = useAsync(() => partnerApi.listPartnerDeliveries(), []);
+  const { data: activePage, loading: loadingActive } = useAsync(() => partnerApi.listPartnerDeliveries({ active: true }), []);
+  const loadingDeliveries = loadingRecent || loadingActive;
 
   if (loadingProfile || loadingStats) return <Spinner label="Chargement de votre espace…" />;
   if (!profile) return <ErrorState fullPage />;
 
-  const recent = deliveries?.slice(0, 6) ?? [];
-  const active = deliveries?.filter(
-    (d) => d.status !== "delivered" && d.status !== "delivery_failed" && d.status !== "customer_unavailable" && d.status !== "returned" && d.status !== "cancelled",
-  ) ?? [];
+  const recent = recentPage?.results.slice(0, 6) ?? [];
+  const active = activePage?.results ?? [];
 
   return (
     <div className="flex flex-col gap-6">

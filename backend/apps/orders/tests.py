@@ -561,7 +561,10 @@ class DriverWorkflowTests(TestCase):
         self.client.force_authenticate(self.admin)
         response = self.client.post(
             "/api/orders/drivers/register/",
-            {"email": self.driver_user.email, "first_name": "Z", "last_name": "Z", "vehicle_type": "moto"},
+            {
+                "email": self.driver_user.email, "first_name": "Z", "last_name": "Z",
+                "phone": "+221770000098", "vehicle_type": "moto",
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -734,6 +737,20 @@ class PartnerSelectionTests(TestCase):
         self.assertIsNotNone(delivery.assigned_at)
         self.assertRegex(delivery.reference, r"^DLV-\d{8}-\d{6}$")
         self.assertEqual(delivery.events.filter(action="pending→assigned").count(), 1)
+
+    def test_assign_partner_freezes_cost_and_margin(self):
+        partner = self._partner("CityCourier", fee=Decimal("1200"), cost=Decimal("800"))
+        order = Order.objects.create(
+            customer=self.customer, store=self.store, address=self.address,
+            delivery_fee=Decimal("1200"), total_amount=2000,
+        )
+        delivery = Delivery.objects.create(order=order)
+        delivery.assign_partner(partner)
+        # Une hausse ultérieure du tarif ne s'applique pas aux courses déjà attribuées.
+        PartnerZonePricing.objects.filter(partner=partner).update(partner_cost=Decimal("5000"))
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.partner_cost, Decimal("800"))
+        self.assertEqual(delivery.platform_margin, Decimal("400"))
 
     def test_invoice_next_reference_and_balance(self):
         partner = self._partner("CityCourier")
@@ -985,6 +1002,133 @@ class PartnerSpaceApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(float(response.data[0]["client_fee"]), 1200.0)
+
+    def test_partner_cannot_reactivate_itself(self):
+        self.partner.status = DeliveryPartner.Status.SUSPENDED
+        self.partner.save()
+        self._as(self.partner_user)
+        response = self.client.patch(
+            "/api/orders/partner/profile/",
+            {"status": "active", "name": "Renamed", "contact_name": "Moussa"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
+        self.assertEqual(self.partner.name, "CityCourier")
+        self.assertEqual(self.partner.contact_name, "Moussa")
+
+    def test_partner_cannot_set_its_own_prices(self):
+        pricing = PartnerZonePricing.objects.get(partner=self.partner)
+        other_zone = DeliveryZone.objects.create(name="Thiès")
+        self._as(self.partner_user)
+        response = self.client.patch(
+            f"/api/orders/partner/zones/{pricing.id}/",
+            {
+                "client_fee": "500", "partner_cost": "9000", "zone": str(other_zone.id),
+                "estimated_delay_minutes": 30, "is_available": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        pricing.refresh_from_db()
+        self.assertEqual(pricing.client_fee, Decimal("1200"))
+        self.assertEqual(pricing.partner_cost, Decimal("800"))
+        self.assertEqual(pricing.zone_id, self.zone.id)
+        self.assertEqual(pricing.estimated_delay_minutes, 30)
+        self.assertFalse(pricing.is_available)
+
+    def test_admin_still_suspends_and_activates_partner(self):
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{self.partner.id}/suspend/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
+
+    def _new_company(self, **kwargs):
+        defaults = {
+            "name": "NewCo", "contact_name": "Fatou Ndiaye Sarr",
+            "contact_email": "Contact@NewCo.sn", "contact_phone": "77 000 00 09",
+        }
+        defaults.update(kwargs)
+        return DeliveryPartner.objects.create(**defaults)
+
+    def test_admin_creates_partner_account(self):
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(response.data["temporary_password"])
+        self.assertEqual(response.data["account_email"], "contact@newco.sn")
+        company.refresh_from_db()
+        user = company.user
+        self.assertTrue(user.is_partner())
+        self.assertTrue(user.must_change_password)
+        self.assertEqual((user.first_name, user.last_name), ("Fatou", "Ndiaye Sarr"))
+        self.assertTrue(user.check_password(response.data["temporary_password"]))
+        # Connexion réelle par téléphone, comme sur /login.
+        self.client.force_authenticate(None)
+        login = self.client.post(
+            "/api/auth/login/", {"phone": "770000009", "password": response.data["temporary_password"]}, format="json"
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK, login.data)
+        self.assertTrue(login.data["user"]["must_change_password"])
+        # Le nouveau compte accède bien à l'Espace Partenaire de son entreprise.
+        self._as(user)
+        profile = self.client.get("/api/orders/partner/profile/")
+        self.assertEqual(profile.status_code, status.HTTP_200_OK)
+        self.assertEqual(profile.data["name"], "NewCo")
+
+    def test_create_account_links_existing_partner_user(self):
+        existing = User.objects.create_user(username="contact@newco.sn", email="contact@newco.sn", password="x")
+        UserRole.objects.create(user=existing, role=Role.objects.get(name=Role.RoleName.PARTNER))
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIsNone(response.data["temporary_password"])
+        company.refresh_from_db()
+        self.assertEqual(company.user_id, existing.id)
+
+    def test_create_account_refuses_unsafe_cases(self):
+        self._as(self.admin)
+        # Déjà lié.
+        linked = self.client.post(f"/api/orders/partners/{self.partner.id}/create-account/", {}, format="json")
+        self.assertEqual(linked.status_code, status.HTTP_400_BAD_REQUEST)
+        # Email d'un compte client : jamais promu partenaire en silence.
+        client_company = self._new_company(name="C", contact_email="c@example.com", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{client_company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.customer.is_partner())
+        # Compte partenaire déjà rattaché à une autre entreprise.
+        other_company = self._new_company(name="D", contact_email="p@example.com", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{other_company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Sans téléphone : le compte ne pourrait pas se connecter.
+        no_phone = self._new_company(name="F", contact_email="f@newco.sn", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{no_phone.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("contact_phone", response.data)
+        # Sans email de contact.
+        no_email = self._new_company(name="E", contact_email="", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{no_email.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_only_admin_creates_partner_account(self):
+        company = self._new_company()
+        self._as(self.partner_user)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        company.refresh_from_db()
+        self.assertIsNone(company.user_id)
+
+    def test_partner_without_account_cannot_be_activated(self):
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/activate/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        company.refresh_from_db()
+        self.assertEqual(company.status, DeliveryPartner.Status.INACTIVE)
 
 
 class TrackOrderGuestTests(TestCase):

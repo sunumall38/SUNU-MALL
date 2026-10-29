@@ -94,6 +94,11 @@ class DeliveryPartner(models.Model):
         ACTIVE = "active", "Actif"
         SUSPENDED = "suspended", "Suspendu"
 
+    class PayoutMethod(models.TextChoices):
+        WAVE = "wave", "Wave"
+        ORANGE_MONEY = "orange_money", "Orange Money"
+        BANK_TRANSFER = "bank_transfer", "Virement bancaire"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Compte utilisateur (rôle `partner`) qui pilote l'Espace Partenaire ;
     # l'admin lie l'entreprise à un compte après activation (spec §2, §11).
@@ -114,6 +119,13 @@ class DeliveryPartner(models.Model):
     # est stocké ; le clair n'est rendu qu'une fois à la génération.
     api_key_hash = models.CharField(max_length=64, blank=True, default="")
     api_key_last4 = models.CharField(max_length=4, blank=True, default="")
+    # Coordonnées de versement des factures mensuelles : numéro Wave /
+    # Orange Money (+221…) ou IBAN. Toute modification est tracée et
+    # notifiée au partenaire (protection contre le détournement de paiement).
+    payout_method = models.CharField(max_length=20, choices=PayoutMethod.choices, blank=True, default="")
+    payout_account = models.CharField(max_length=64, blank=True, default="")
+    payout_holder = models.CharField(max_length=150, blank=True, default="")
+    payout_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -456,6 +468,11 @@ class Delivery(models.Model):
         DeliveryPartner, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries'
     )
     driver = models.ForeignKey(Driver, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries')
+    # Facture partenaire qui règle cette course (une seule) : une course
+    # facturée n'est jamais reprise dans une autre facture.
+    invoice = models.ForeignKey(
+        'PartnerInvoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries'
+    )
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
     # Horodatage de chaque étape de la timeline (spec §28). `picked_up_at` et
     # `delivered_at` existaient déjà ; on garde ces noms pour la rétrocompat.
@@ -538,6 +555,13 @@ class Delivery(models.Model):
             return
         old = self.status
         self.partner = partner
+        # Le coût partenaire et la marge sont figés à l'affectation : une
+        # modification ultérieure du tarif de zone ne touche que les
+        # nouvelles courses, jamais celles déjà attribuées.
+        if partner:
+            self.partner_cost = partner.partner_cost_for(self)
+            client_fee = self.total_delivery_fee or (self.order.delivery_fee if self.order_id else Decimal("0"))
+            self.platform_margin = client_fee - self.partner_cost
         self.status = self.Status.ASSIGNED
         self.assigned_at = timezone.now()
         self.save()
@@ -1210,13 +1234,15 @@ class DeliveryEvent(models.Model):
 
 
 class PartnerInvoice(models.Model):
-    """Facture d'un partenaire (spec §19-§22).
+    """Facture mensuelle d'un partenaire : ce que Sunu Mall lui doit.
 
-    Établie sur une période, à partir des livraisons DELIVERED/MARKETPLACE
-    payées à ce partenaire. `total_due` = somme des courses facturables,
-    `collection_fees` = commission prélevée par Sunu Mall, `balance` =
-    montant net à régler. La réconciliation (spec §21) compare le total des
-    course facturables à la période (recompute) au montant retenu.
+    Générée par `apps.orders.invoicing.generate_partner_invoices` à partir des
+    courses livrées et pas encore facturées. Le partenaire est rémunéré au
+    coût fixe de sa zone (`Delivery.partner_cost`, figé à l'attribution) :
+    `total_due` = somme de ces coûts. La marge Sunu Mall est déjà comprise
+    dans l'écart tarif client / coût partenaire, d'où des taux de commission
+    et `collection_fees` à 0 sur les factures générées. `balance` = montant
+    net à verser.
     """
 
     class Status(models.TextChoices):
@@ -1285,9 +1311,9 @@ class PartnerInvoice(models.Model):
 
         self.status = self.Status.PAID
         self.paid_at = timezone.now()
-        self.save()
+        self.save(update_fields=["status", "paid_at", "updated_at"])
         log_security_event(
-            "PARTNER_INVOICE_PAID", device=user, metadata={"invoice": self.reference, "amount": str(self.balance)},
+            user, "PARTNER_INVOICE_PAID", metadata={"invoice": self.reference, "amount": str(self.balance)},
         )
 
     def __str__(self):

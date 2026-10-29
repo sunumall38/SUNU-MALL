@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
+import { Banknote, Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff, UserPlus } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as adminPartnersApi from "@/api/admin-partners";
 import { apiErrorMessage } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPrice } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -25,12 +25,81 @@ const STATUS_VARIANT: Record<PartnerStatus, "success" | "default" | "danger"> = 
   suspended: "danger",
 };
 
+const PAYOUT_LABEL: Record<string, string> = {
+  wave: "Wave",
+  orange_money: "Orange Money",
+  bank_transfer: "IBAN",
+};
+
+function PendingInvoices() {
+  const { data: invoices, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartnerInvoices("pending"), []);
+  const [payingId, setPayingId] = useState<number | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  async function markPaid(id: number) {
+    setPayingId(id);
+    setPayError(null);
+    try {
+      await adminPartnersApi.markPartnerInvoicePaid(id);
+      refetch();
+    } catch (err) {
+      setPayError(apiErrorMessage(err, "Impossible de marquer la facture payée."));
+    } finally {
+      setPayingId(null);
+    }
+  }
+
+  if (loading || error || !invoices || invoices.length === 0) return null;
+  const total = invoices.reduce((sum, invoice) => sum + Number(invoice.balance), 0);
+
+  return (
+    <Card className="flex flex-col gap-3 border-orange/30">
+      <p className="flex items-center gap-2 font-semibold text-ink">
+        <Banknote className="h-4 w-4 text-orange" /> Factures à régler · {formatPrice(total)}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Émises automatiquement chaque début de mois. Faites le virement, puis marquez la facture payée.
+      </p>
+      {payError && <p className="rounded-lg border border-danger/30 bg-red-50 px-3 py-2 text-sm text-danger">{payError}</p>}
+      <ul className="flex flex-col divide-y divide-border">
+        {invoices.map((invoice) => (
+          <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="font-semibold text-ink">
+                {invoice.partner_name} · {formatPrice(invoice.balance)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {invoice.reference} · {invoice.marketplace_deliveries_count} livraison(s)
+                {invoice.due_date ? ` · échéance le ${formatDate(invoice.due_date)}` : ""}
+              </p>
+              {invoice.partner_payout.payout_account ? (
+                <p className="text-xs text-ink">
+                  Verser sur : {PAYOUT_LABEL[invoice.partner_payout.payout_method] ?? invoice.partner_payout.payout_method}{" "}
+                  <span className="font-mono">{invoice.partner_payout.payout_account}</span> · {invoice.partner_payout.payout_holder}
+                </p>
+              ) : (
+                <p className="text-xs font-semibold text-orange-dark">
+                  Coordonnées de versement non renseignées par le partenaire.
+                </p>
+              )}
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => markPaid(invoice.id)} loading={payingId === invoice.id}>
+              <Check className="h-4 w-4" /> Marquer payée
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export default function AdminPartnersPage() {
   const { data: partners, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartners(), []);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rawApiKey, setRawApiKey] = useState<{ id: string; key: string } | null>(null);
+  const [newAccount, setNewAccount] = useState<{ email: string; phone: string; password: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -96,10 +165,24 @@ export default function AdminPartnersPage() {
     }
   }
 
-  async function copyKey() {
-    if (!rawApiKey) return;
+  async function createAccount(partner: DeliveryPartner) {
+    setRotatingId(partner.id);
+    setActionError(null);
+    setNewAccount(null);
     try {
-      await navigator.clipboard.writeText(rawApiKey.key);
+      const result = await adminPartnersApi.createAdminPartnerAccount(partner.id);
+      setNewAccount({ email: result.account_email ?? partner.contact_email, phone: partner.contact_phone, password: result.temporary_password });
+      refetch();
+    } catch (err) {
+      setActionError(apiErrorMessage(err, "Impossible de créer le compte partenaire."));
+    } finally {
+      setRotatingId(null);
+    }
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -116,6 +199,8 @@ export default function AdminPartnersPage() {
           <Building2 className="h-6 w-6 text-orange" /> Partenaires logistiques
         </h1>
 
+        <PendingInvoices />
+
         {error ? (
           <ErrorState fullPage onRetry={refetch} />
         ) : actionError ? (
@@ -131,11 +216,41 @@ export default function AdminPartnersPage() {
               <code className="flex-1 break-all rounded-lg border border-dashed border-emerald-300 bg-white px-3 py-2 font-mono text-xs text-gray-900">
                 {rawApiKey.key}
               </code>
-              <Button size="sm" variant="secondary" onClick={copyKey} className="shrink-0">
+              <Button size="sm" variant="secondary" onClick={() => copyText(rawApiKey.key)} className="shrink-0">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copié" : "Copier"}
               </Button>
             </div>
+          </Card>
+        )}
+
+        {newAccount && (
+          <Card className="flex flex-col gap-3 border-emerald-500/30 bg-emerald-50">
+            <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+              <UserPlus className="h-4 w-4" />
+              {newAccount.password ? "Compte partenaire créé" : "Compte partenaire existant lié"}
+            </p>
+            {newAccount.password ? (
+              <>
+                <p className="text-xs text-emerald-800">
+                  Transmettez au partenaire son téléphone et ce mot de passe provisoire (affiché une seule fois) pour se connecter sur /login ; il devra le
+                  changer à sa première connexion.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 break-all rounded-lg border border-dashed border-emerald-300 bg-white px-3 py-2 font-mono text-xs text-gray-900">
+                    {newAccount.phone} · {newAccount.password}
+                  </code>
+                  <Button size="sm" variant="secondary" onClick={() => copyText(newAccount.password ?? "")} className="shrink-0">
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copied ? "Copié" : "Copier"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-emerald-800">
+                {newAccount.email} se connecte avec son mot de passe habituel et accède désormais à l'Espace Partenaire.
+              </p>
+            )}
           </Card>
         )}
 
@@ -158,14 +273,27 @@ export default function AdminPartnersPage() {
                   <Badge variant={STATUS_VARIANT[partner.status]}>{STATUS_LABEL[partner.status]}</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Score qualité : <strong className="text-ink">{partner.score}/100</strong>
+                  Score qualité : <strong className="text-ink">{partner.score}/100</strong> · Compte :{" "}
+                  {partner.account_email ? (
+                    <strong className="text-ink">{partner.account_email}</strong>
+                  ) : (
+                    <span className="font-semibold text-orange-dark">aucun — à créer avant l'activation</span>
+                  )}
                 </p>
                 <div className="flex flex-wrap gap-2">
+                  {!partner.account_email && (
+                    <Button size="sm" onClick={() => createAccount(partner)} loading={rotatingId === partner.id}>
+                      <UserPlus className="h-4 w-4" />
+                      Créer le compte
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant={partner.status === "active" ? "danger" : "secondary"}
                     onClick={() => toggleStatus(partner)}
                     loading={rotatingId === partner.id}
+                    disabled={partner.status !== "active" && !partner.account_email}
+                    title={partner.status !== "active" && !partner.account_email ? "Créez d'abord le compte partenaire" : undefined}
                   >
                     {partner.status === "active" ? <ShieldOff className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
                     {partner.status === "active" ? "Suspendre" : partner.status === "suspended" ? "Réactiver" : "Activer"}
@@ -184,15 +312,15 @@ export default function AdminPartnersPage() {
       <Card className="h-fit">
         <h2 className="mb-1 font-semibold text-ink">Créer une entreprise partenaire</h2>
         <p className="mb-4 text-xs text-muted-foreground">
-          L'entreprise est créée inactive : liez-la ensuite à un compte utilisateur rôle « partenaire », puis activez-la
-          et configurez ses zones de livraison.
+          L'entreprise est créée inactive. Ensuite : « Créer le compte » (connexion sur /login avec le téléphone de
+          contact ; le mot de passe provisoire s'affiche une seule fois, à transmettre au partenaire), puis activez-la et configurez ses zones de livraison.
         </p>
 
         <form onSubmit={handleCreate} className="flex flex-col gap-4">
           <Input label="Nom de l'entreprise" value={form.name} onChange={(e) => update("name", e.target.value)} required />
           <Input label="Personne de contact" value={form.contact_name} onChange={(e) => update("contact_name", e.target.value)} />
-          <Input label="Email de contact" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} />
-          <Input label="Téléphone" type="tel" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+221..." />
+          <Input label="Email de contact" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} required />
+          <Input label="Téléphone (identifiant de connexion du partenaire)" type="tel" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+221..." required />
           <Input label="Adresse" value={form.address} onChange={(e) => update("address", e.target.value)} />
           <Input label="Ville" value={form.city} onChange={(e) => update("city", e.target.value)} />
 

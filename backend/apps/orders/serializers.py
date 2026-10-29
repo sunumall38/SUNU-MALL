@@ -1,4 +1,9 @@
+import re
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+
+from apps.users.phone import normalize_senegal_phone
 from .models import (
     Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryPickup,
     DeliveryPricingRule, DeliveryTracking, DeliveryZone, Driver, GlobalOrder,
@@ -167,14 +172,29 @@ class DeliveryPickupSerializer(serializers.ModelSerializer):
 
 
 class DeliveryPartnerSerializer(serializers.ModelSerializer):
+    # Email du compte utilisateur qui pilote l'Espace Partenaire (None tant
+    # que l'admin n'a pas créé ou lié de compte).
+    account_email = serializers.EmailField(source="user.email", read_only=True, default=None)
+
     class Meta:
         model = DeliveryPartner
         fields = [
             "id", "name", "contact_name", "contact_email", "contact_phone",
-            "address", "city", "status", "score",
+            "address", "city", "status", "score", "account_email",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "score", "created_at", "updated_at"]
+
+
+class PartnerProfileUpdateSerializer(DeliveryPartnerSerializer):
+    """Profil modifiable par le partenaire lui-même : coordonnées uniquement.
+
+    Le nom de l'entreprise, le statut (activation/suspension) et le score
+    restent réservés à l'administration.
+    """
+
+    class Meta(DeliveryPartnerSerializer.Meta):
+        read_only_fields = ["id", "name", "status", "score", "created_at", "updated_at"]
 
 
 class DeliveryPartnerDetailSerializer(DeliveryPartnerSerializer):
@@ -188,7 +208,7 @@ class DeliveryPartnerDetailSerializer(DeliveryPartnerSerializer):
     class Meta(DeliveryPartnerSerializer.Meta):
         fields = [
             "id", "name", "contact_name", "contact_email", "contact_phone",
-            "address", "city", "status", "score",
+            "address", "city", "status", "score", "account_email",
             "drivers_count", "deliveries_count", "delivered_count",
             "success_rate", "return_rate", "active_zones",
             "created_at", "updated_at",
@@ -229,11 +249,59 @@ class PartnerZonePricingSerializer(serializers.ModelSerializer):
         extra_kwargs = {"partner": {"read_only": True}}
 
 
+class PartnerZoneUpdateSerializer(PartnerZonePricingSerializer):
+    """Ajustements opérationnels ouverts au partenaire sur ses zones.
+
+    Les prix (tarif client, coût partenaire) et la zone elle-même sont fixés
+    par l'administration : un partenaire ne peut pas fixer sa propre
+    rémunération ni la marge Sunu Mall.
+    """
+
+    class Meta(PartnerZonePricingSerializer.Meta):
+        read_only_fields = ["id", "zone", "zone_name", "client_fee", "partner_cost", "margin"]
+
+
+class PartnerPayoutSerializer(serializers.ModelSerializer):
+    """Coordonnées de versement du partenaire (Wave, Orange Money ou IBAN)."""
+
+    class Meta:
+        model = DeliveryPartner
+        fields = ["payout_method", "payout_account", "payout_holder", "payout_updated_at"]
+        read_only_fields = ["payout_updated_at"]
+        extra_kwargs = {
+            "payout_method": {"required": True, "allow_blank": False},
+            "payout_account": {"required": True, "allow_blank": False},
+            "payout_holder": {"required": True, "allow_blank": False},
+        }
+
+    def validate(self, attrs):
+        method = attrs.get("payout_method", getattr(self.instance, "payout_method", ""))
+        account = (attrs.get("payout_account", getattr(self.instance, "payout_account", "")) or "").strip()
+        if method == DeliveryPartner.PayoutMethod.BANK_TRANSFER:
+            iban = re.sub(r"\s", "", account).upper()
+            if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", iban):
+                raise serializers.ValidationError({"payout_account": "IBAN invalide (ex. SN08 SN01 0015 2000 0000 1234 5678)."})
+            attrs["payout_account"] = iban
+        else:
+            try:
+                attrs["payout_account"] = normalize_senegal_phone(account)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"payout_account": exc.messages})
+        attrs["payout_holder"] = (attrs.get("payout_holder") or getattr(self.instance, "payout_holder", "")).strip()
+        if not method or not attrs["payout_holder"]:
+            raise serializers.ValidationError("Moyen de paiement, compte et titulaire sont obligatoires.")
+        return attrs
+
+
 class PartnerInvoiceSerializer(serializers.ModelSerializer):
+    partner_name = serializers.CharField(source="partner.name", read_only=True)
+    # Où verser le montant : affiché à l'admin à côté de « Marquer payée ».
+    partner_payout = PartnerPayoutSerializer(source="partner", read_only=True)
+
     class Meta:
         model = PartnerInvoice
         fields = [
-            "id", "partner", "reference", "status", "period_start", "period_end",
+            "id", "partner", "partner_name", "partner_payout", "reference", "status", "period_start", "period_end",
             "due_date", "marketplace_rate", "on_demand_rate",
             "marketplace_deliveries_count", "on_demand_deliveries_count",
             "marketplace_amount", "on_demand_amount", "collection_fees",
@@ -248,6 +316,22 @@ class PartnerInvoiceSerializer(serializers.ModelSerializer):
             "paid_at", "created_at", "updated_at",
         ]
         extra_kwargs = {"partner": {"read_only": True}}
+
+
+class InvoicedDeliverySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Delivery
+        fields = ["id", "reference", "delivered_at", "partner_cost"]
+        read_only_fields = fields
+
+
+class PartnerInvoiceDetailSerializer(PartnerInvoiceSerializer):
+    """Facture avec le détail des courses réglées, pour vérification."""
+
+    deliveries = InvoicedDeliverySerializer(many=True, read_only=True)
+
+    class Meta(PartnerInvoiceSerializer.Meta):
+        fields = PartnerInvoiceSerializer.Meta.fields + ["deliveries"]
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

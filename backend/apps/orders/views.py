@@ -13,6 +13,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -33,7 +34,8 @@ from .serializers import (
     DeliverySerializer, DeliveryTrackingSerializer, DriverSerializer,
     GlobalOrderSerializer, OrderSerializer, DeliveryEventSerializer,
     DeliveryPartnerSerializer, DeliveryPartnerDetailSerializer,
-    PartnerInvoiceSerializer, PartnerZonePricingSerializer,
+    PartnerInvoiceDetailSerializer, PartnerInvoiceSerializer, PartnerPayoutSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
+    PartnerZoneUpdateSerializer,
 )
 from apps.catalog.models import Product, ProductVariant, Store
 from apps.payments.models import Payment, Refund
@@ -345,8 +347,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             delivery.total_distance = total_distance
             partner = best_delivery_partner(address)
             if partner is not None:
-                delivery.partner_cost = partner.partner_cost_for(delivery)
-                delivery.platform_margin = delivery_fee - delivery.partner_cost
+                # assign_partner fige partner_cost et platform_margin.
                 delivery.assign_partner(partner)
             else:
                 delivery.platform_margin = delivery_fee
@@ -550,8 +551,11 @@ class DriverViewSet(viewsets.ModelViewSet):
             raise ValidationError({"phone": exc.messages})
         vehicle_type = (request.data.get("vehicle_type") or "").strip()
 
+        # Le téléphone est l'identifiant de connexion : sans lui, le livreur
+        # ne pourrait jamais se connecter.
         missing = [f for f, v in {
-            "email": email, "first_name": first_name, "last_name": last_name, "vehicle_type": vehicle_type,
+            "email": email, "first_name": first_name, "last_name": last_name,
+            "phone": phone, "vehicle_type": vehicle_type,
         }.items() if not v]
         if missing:
             raise ValidationError(f"Champs manquants : {', '.join(missing)}.")
@@ -1382,7 +1386,10 @@ class PartnerViewSet(viewsets.ModelViewSet):
     """Gestion administrative des entreprises partenaires (admin uniquement).
 
     - Création, lecture, mise à jour, suspension des partenaires.
-    - `activate` / `suspend` : bascule du statut opérationnel.
+    - `activate` / `suspend` : bascule du statut opérationnel (activation
+      impossible sans compte lié : l'entreprise recevrait des courses
+      automatiquement sans personne pour les traiter).
+    - `create-account` : crée (ou lie) le compte utilisateur « partenaire ».
     - `rotate-api-key` : régénère la clé d'API d'intégration du partenaire.
     """
 
@@ -1402,6 +1409,8 @@ class PartnerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="activate")
     def activate(self, request, pk=None):
         partner = self.get_object()
+        if partner.user_id is None:
+            raise ValidationError("Créez d'abord le compte partenaire avant d'activer l'entreprise.")
         partner.status = DeliveryPartner.Status.ACTIVE
         partner.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
@@ -1413,11 +1422,144 @@ class PartnerViewSet(viewsets.ModelViewSet):
         partner.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
 
+    @action(detail=True, methods=["post"], url_path="create-account")
+    def create_account(self, request, pk=None):
+        """Crée le compte utilisateur « partenaire » à partir des coordonnées
+        de contact de l'entreprise et le lie à celle-ci.
+
+        Si un compte existe déjà avec cet email et porte le rôle partenaire
+        sans être lié à une autre entreprise, il est simplement lié. Sinon, un
+        nouveau compte est créé ; le mot de passe provisoire est renvoyé une
+        seule fois et devra être changé à la première connexion.
+        """
+        User = get_user_model()
+        partner = self.get_object()
+        if partner.user_id is not None:
+            raise ValidationError("Un compte est déjà lié à cette entreprise.")
+        email = (partner.contact_email or "").strip().lower()
+        if not email:
+            raise ValidationError({"contact_email": "Renseignez l'email de contact de l'entreprise."})
+
+        existing = User.objects.filter(email__iexact=email).first()
+        if existing is not None:
+            if not existing.has_role(Role.RoleName.PARTNER):
+                raise ValidationError("Un compte non partenaire existe déjà avec cet email.")
+            if DeliveryPartner.objects.filter(user=existing).exists():
+                raise ValidationError("Ce compte est déjà lié à une autre entreprise partenaire.")
+            partner.user = existing
+            partner.save(update_fields=["user", "updated_at"])
+            data = DeliveryPartnerDetailSerializer(partner).data
+            data["temporary_password"] = None
+            return Response(data)
+
+        # Le téléphone est l'identifiant de connexion (/login) : obligatoire.
+        if not (partner.contact_phone or "").strip():
+            raise ValidationError({"contact_phone": "Renseignez le téléphone de contact : il sert à se connecter."})
+        try:
+            phone = normalize_senegal_phone(partner.contact_phone)
+        except DjangoValidationError as exc:
+            raise ValidationError({"contact_phone": exc.messages})
+        if User.objects.filter(phone=phone).exists():
+            raise ValidationError({"contact_phone": "Ce numéro de téléphone est déjà utilisé."})
+
+        first_name, _, last_name = (partner.contact_name or partner.name).strip().partition(" ")
+        temporary_password = get_random_string(10)
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                password=temporary_password,
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                is_verified=True,
+                must_change_password=True,
+            )
+            UserRole.objects.create(user=user, role=Role.objects.get(name=Role.RoleName.PARTNER))
+            partner.user = user
+            partner.save(update_fields=["user", "updated_at"])
+        data = DeliveryPartnerDetailSerializer(partner).data
+        data["temporary_password"] = temporary_password
+        return Response(data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="rotate-api-key")
     def rotate_api_key(self, request, pk=None):
         partner = self.get_object()
         raw = partner.rotate_api_key()
         return Response({"api_key": raw, "api_key_last4": partner.api_key_last4})
+
+
+def _mask(account):
+    return f"…{account[-4:]}" if account else "aucun"
+
+
+def _notify_payout_change(request, partner, previous):
+    from apps.monetization.models import Notification
+    from apps.security.utils import log_security_event
+
+    log_security_event(
+        request.user, "PARTNER_PAYOUT_CHANGED", request,
+        metadata={
+            "partner": str(partner.id), "method": partner.payout_method,
+            "previous": _mask(previous), "new": _mask(partner.payout_account),
+        },
+    )
+    Notification.objects.create(
+        user=request.user,
+        channel=Notification.Channel.EMAIL,
+        subject="Vos coordonnées de paiement ont été modifiées",
+        message=(
+            "Bonjour,\n\n"
+            f"Le compte de versement de {partner.name} vient d'être modifié "
+            f"({_mask(previous)} → {_mask(partner.payout_account)}, "
+            f"{partner.get_payout_method_display()}).\n\n"
+            "Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement "
+            "le support Sunu Mall et changez votre mot de passe.\n\n"
+            "Cordialement,\nL'équipe Sunu Mall"
+        ),
+        metadata={"kind": "partner_payout_changed"},
+    ).send()
+
+
+class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
+    """Factures partenaires côté administration (admin uniquement).
+
+    - GET  /api/orders/partner-invoices/?status=pending  → factures à régler
+    - GET  /api/orders/partner-invoices/<id>/            → détail des courses
+    - POST /api/orders/partner-invoices/<id>/mark-paid/  → virement effectué
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        if not self.request.user.is_admin():
+            raise PermissionDenied("Seul un administrateur gère les factures partenaires.")
+        qs = PartnerInvoice.objects.select_related("partner").order_by("-period_end", "reference")
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return PartnerInvoiceDetailSerializer
+        return PartnerInvoiceSerializer
+
+    @action(detail=True, methods=["post"], url_path="mark-paid")
+    def mark_paid(self, request, pk=None):
+        invoice = self.get_object()
+        if invoice.status == PartnerInvoice.Status.PAID:
+            raise ValidationError("Cette facture est déjà marquée payée.")
+        invoice.mark_paid(user=request.user)
+        return Response(PartnerInvoiceSerializer(invoice).data)
+
+
+# Courses terminées (livrées, échouées, retournées, annulées).
+FINISHED_DELIVERY_STATUSES = [
+    Delivery.Status.DELIVERED, Delivery.Status.DELIVERY_FAILED,
+    Delivery.Status.CUSTOMER_UNAVAILABLE, Delivery.Status.RETURNED,
+    Delivery.Status.CANCELLED,
+]
 
 
 class PartnerSpaceViewSet(viewsets.ViewSet):
@@ -1428,11 +1570,11 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     - PATCH /api/orders/partner/profile/       → mise à jour du profil
     - POST /api/orders/partner/api-key/        → rotation clé d'API
     - GET  /api/orders/partner/stats/          → tableau de bord (spec §6)
-    - GET  /api/orders/partner/deliveries/     → livraisons (filtres si trouvés)
+    - GET  /api/orders/partner/deliveries/     → livraisons paginées (?status=, ?active=1, ?page=)
     - GET  /api/orders/partner/invoices/       → factures (spec §19-§22)
     - GET  /api/orders/partner/invoices/<pk>/  → détail + délai de paiement
     - GET  /api/orders/partner/zones/          → tarifs par zone
-    - PATCH /api/orders/partner/zones/<pk>/    → ajuster un tarif zone
+    - PATCH /api/orders/partner/zones/<pk>/    → délai, poids max, disponibilité (prix réservés à l'admin)
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -1445,7 +1587,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def profile(self, request):
         partner = self._partner(request)
         if request.method == "PATCH":
-            serializer = DeliveryPartnerSerializer(partner, data=request.data, partial=True)
+            serializer = PartnerProfileUpdateSerializer(partner, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
@@ -1456,9 +1598,21 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         return Response({"api_key": raw, "api_key_last4": partner.api_key_last4})
 
     def banks(self, request):
-        """Moyens de paiement du partenaire (affichage) — complétion §12 monétique."""
-        self._partner(request)  # réservé aux partenaires
-        return Response({"method": "bank_transfer", "iban": "", "provider": ""})
+        """Coordonnées de versement des factures (Wave, Orange Money ou IBAN).
+
+        Un changement est la cible classique d'un détournement de paiement
+        (compte piraté) : il est inscrit au journal de sécurité et confirmé
+        par e-mail au partenaire, avec l'ancien et le nouveau compte masqués.
+        """
+        partner = self._partner(request)
+        if request.method == "PATCH":
+            previous = partner.payout_account
+            serializer = PartnerPayoutSerializer(partner, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(payout_updated_at=timezone.now())
+            if partner.payout_account != previous:
+                _notify_payout_change(request, partner, previous)
+        return Response(PartnerPayoutSerializer(partner).data)
 
     def stats(self, request):
         partner = self._partner(request)
@@ -1469,16 +1623,15 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         def _count(qs):
             return qs.count()
 
-        active = deliveries.exclude(
-            status__in=[
-                Delivery.Status.DELIVERED, Delivery.Status.DELIVERY_FAILED,
-                Delivery.Status.CUSTOMER_UNAVAILABLE, Delivery.Status.RETURNED,
-                Delivery.Status.CANCELLED,
-            ]
-        )
+        active = deliveries.exclude(status__in=FINISHED_DELIVERY_STATUSES)
         month_deliveries = deliveries.filter(created_at__date__gte=month_start)
+        # Coût figé à l'affectation ; recalcul uniquement pour les courses
+        # antérieures à ce gel (partner_cost resté à 0).
         total_revenue = sum(
-            (d.partner_cost_for(d) for d in deliveries.filter(status=Delivery.Status.DELIVERED)),
+            (
+                d.partner_cost or partner.partner_cost_for(d)
+                for d in deliveries.filter(status=Delivery.Status.DELIVERED)
+            ),
             Decimal("0"),
         )
         unpaid_amount = sum(
@@ -1507,11 +1660,19 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
 
     def deliveries(self, request):
         partner = self._partner(request)
-        qs = partner.deliveries.select_related("order", "order__store", "driver", "driver__user")
+        qs = partner.deliveries.select_related(
+            "order", "order__store", "driver", "driver__user"
+        ).order_by("-created_at")
         status_filter = request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
-        return Response(DeliverySerializer(qs, many=True).data)
+        if request.query_params.get("active") in ("1", "true"):
+            qs = qs.exclude(status__in=FINISHED_DELIVERY_STATUSES)
+        # Paginé (20 par page) : l'historique complet, avec les données des
+        # clients, n'est plus renvoyé d'un bloc.
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        return paginator.get_paginated_response(DeliverySerializer(page, many=True).data)
 
     def invoices(self, request):
         partner = self._partner(request)
@@ -1520,7 +1681,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def invoice_detail(self, request, pk=None):
         partner = self._partner(request)
         invoice = get_object_or_404(partner.invoices, pk=pk)
-        return Response(PartnerInvoiceSerializer(invoice).data)
+        return Response(PartnerInvoiceDetailSerializer(invoice).data)
 
     def zones(self, request):
         partner = self._partner(request)
@@ -1529,7 +1690,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def zone_update(self, request, pk=None):
         partner = self._partner(request)
         zp = get_object_or_404(partner.zone_pricings, pk=pk)
-        serializer = PartnerZonePricingSerializer(zp, data=request.data, partial=True)
+        serializer = PartnerZoneUpdateSerializer(zp, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)

@@ -107,7 +107,7 @@ export default function PartnerDriversPage() {
           <Input label="Prénom" value={form.first_name} onChange={(e) => update("first_name", e.target.value)} required />
           <Input label="Nom" value={form.last_name} onChange={(e) => update("last_name", e.target.value)} required />
           <Input label="Email" type="email" value={form.email} onChange={(e) => update("email", e.target.value)} required />
-          <Input label="Téléphone" type="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="+221..." />
+          <Input label="Téléphone (identifiant de connexion)" type="tel" value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="+221..." required />
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-ink">Type de véhicule</span>
             <select

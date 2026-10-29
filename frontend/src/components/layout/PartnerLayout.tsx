@@ -1,4 +1,5 @@
 import { LayoutDashboard, MapPin, Truck, Wallet, ListChecks, User } from "lucide-react";
+import { MustChangePasswordGuard } from "@/components/auth/MustChangePasswordGuard";
 import { RoleGuard } from "@/components/auth/RoleGuard";
 import { DashboardShell, type DashboardNavItem } from "@/components/layout/DashboardShell";
 
@@ -14,7 +15,9 @@ const nav: DashboardNavItem[] = [
 export function PartnerLayout() {
   return (
     <RoleGuard roles={["partner"]}>
-      <DashboardShell nav={nav} title="Espace partenaire" />
+      <MustChangePasswordGuard to="/partner-password-change">
+        <DashboardShell nav={nav} title="Espace partenaire" />
+      </MustChangePasswordGuard>
     </RoleGuard>
   );
 }

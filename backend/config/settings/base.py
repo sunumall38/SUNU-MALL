@@ -462,6 +462,9 @@ ORANGE_MONEY_CURRENCY = config("ORANGE_MONEY_CURRENCY", default="XOF")
 # l'URL publique de l'API : c'est elle que Wave/Orange Money notifient
 # (notif_url), pas le frontend. Doivent être accessibles publiquement.
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3004")
+
+# Délai de paiement des factures partenaires (jours après l'émission).
+PARTNER_INVOICE_PAYMENT_DAYS = config("PARTNER_INVOICE_PAYMENT_DAYS", default=15, cast=int)
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8080/api")
 
 # --- IA (apps/ia/) : génération de description produit, assistant client ---

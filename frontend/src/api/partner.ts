@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerSpaceStats, PartnerZonePricing } from "@/types";
+import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerInvoiceDetail, PartnerPayout, PartnerPayoutMethod, PartnerSpaceStats, PartnerZonePricing } from "@/types";
 
 /** Profil de l'entreprise partenaire (détail + statistiques). */
 export function getPartnerProfile() {
@@ -15,8 +15,13 @@ export function rotatePartnerApiKey() {
   return apiPost<{ api_key: string; api_key_last4: string }>("/orders/partner/api-key/");
 }
 
-export function getPartnerBankInfo() {
-  return apiGet<{ method: string; iban: string; provider: string }>("/orders/partner/banks/");
+export function getPartnerPayout() {
+  return apiGet<PartnerPayout>("/orders/partner/banks/");
+}
+
+/** Un changement est tracé et confirmé par e-mail au partenaire. */
+export function updatePartnerPayout(payload: Pick<PartnerPayout, "payout_account" | "payout_holder"> & { payout_method: PartnerPayoutMethod }) {
+  return apiPatch<PartnerPayout>("/orders/partner/banks/", payload);
 }
 
 /** Tableau de bord (spec §6) : volumes, taux, revenus, impayés. */
@@ -24,23 +29,30 @@ export function getPartnerStats() {
   return apiGet<PartnerSpaceStats>("/orders/partner/stats/");
 }
 
-export function listPartnerDeliveries(status?: string) {
-  return apiGet<Delivery[]>(`/orders/partner/deliveries/${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+/** Livraisons de l'entreprise, 20 par page (plus récentes d'abord). `active` : seulement les courses en cours. */
+export function listPartnerDeliveries(params: { status?: string; active?: boolean; page?: number } = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.active) qs.set("active", "1");
+  if (params.page && params.page > 1) qs.set("page", String(params.page));
+  const query = qs.toString();
+  return apiGet<Paginated<Delivery>>(`/orders/partner/deliveries/${query ? `?${query}` : ""}`);
 }
 
 export function listPartnerInvoices() {
   return apiGet<PartnerInvoice[]>("/orders/partner/invoices/");
 }
 
-export function getPartnerInvoice(id: string) {
-  return apiGet<PartnerInvoice>(`/orders/partner/invoices/${id}/`);
+export function getPartnerInvoice(id: number) {
+  return apiGet<PartnerInvoiceDetail>(`/orders/partner/invoices/${id}/`);
 }
 
 export function listPartnerZones() {
   return apiGet<PartnerZonePricing[]>("/orders/partner/zones/");
 }
 
-export function updatePartnerZone(id: string, payload: Partial<Pick<PartnerZonePricing, "client_fee" | "partner_cost" | "estimated_delay_minutes" | "max_weight_kg" | "is_available">>) {
+/** Les prix (tarif client, coût partenaire) sont fixés par l'administration : le partenaire ajuste uniquement délai, poids max et disponibilité. */
+export function updatePartnerZone(id: string, payload: Partial<Pick<PartnerZonePricing, "estimated_delay_minutes" | "max_weight_kg" | "is_available">>) {
   return apiPatch<PartnerZonePricing>(`/orders/partner/zones/${id}/`, payload);
 }
 
