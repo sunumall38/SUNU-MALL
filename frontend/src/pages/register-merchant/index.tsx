@@ -24,6 +24,12 @@ export default function RegisterMerchantPage() {
           Se connecter
         </Link>
       </p>
+      <p className="mt-2 text-center text-sm text-muted-foreground">
+        Vous voulez seulement acheter ?{" "}
+        <Link to="/register-client" className="font-semibold text-orange transition-colors hover:text-orange-dark">
+          Créer un compte client
+        </Link>
+      </p>
     </div>
   );
 }

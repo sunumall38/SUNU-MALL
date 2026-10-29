@@ -71,7 +71,8 @@ export const router = createBrowserRouter([
       { path: "/guest-login", lazy: page(() => import("@/pages/guest-login")) },
       { path: "/mot-de-passe-oublie", lazy: page(() => import("@/pages/forgot-password")) },
       { path: "/reinitialiser-mot-de-passe", lazy: page(() => import("@/pages/reset-password")) },
-      { path: "/driver-login", lazy: page(() => import("@/pages/driver-login")) },
+      // Ancienne page de connexion livreur : une seule page de connexion pour tous les rôles.
+      { path: "/driver-login", element: <Navigate to="/login" replace /> },
     ],
   },
 
