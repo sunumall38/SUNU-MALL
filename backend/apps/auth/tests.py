@@ -817,8 +817,6 @@ class PhoneOTPTests(TestCase):
     def test_wrong_code_consumes_attempt_then_blocks(self):
         self.client.force_authenticate(self.user)
         request_code = self.client.post("/api/auth/request-phone-otp/", {}, format="json").data["debug_code"]
-        otp = self.user.phone_otps.latest("created_at")
-
         for _ in range(settings.PHONE_OTP_MAX_ATTEMPTS):
             response = self.client.post("/api/auth/verify-phone-otp/", {"code": "000000"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

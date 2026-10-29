@@ -17,7 +17,7 @@ Principes portés par ce module :
 """
 import uuid
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models

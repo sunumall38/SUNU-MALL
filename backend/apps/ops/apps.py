@@ -7,4 +7,4 @@ class OpsConfig(AppConfig):
     verbose_name = "Administration technique (ops)"
 
     def ready(self):
-        import apps.ops.models
+        import apps.ops.models  # noqa: F401

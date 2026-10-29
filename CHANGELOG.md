@@ -6,6 +6,27 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 
 ## [Non publié]
 
+### Modifié
+- Parcours vendeur : pièce d'identité d'abord, puis boutique ; l'administration
+  rend une seule décision sur le dossier complet (boutique active et identité
+  vérifiée, ou refus motivé). Un dossier refusé repart en examen dès que le
+  vendeur corrige sa boutique ou renvoie sa pièce. Statuer exige les
+  permissions `kyc.approve` / `kyc.reject`.
+- Ventes en direct masquées (navigation, accueil, route) en attendant l'offre.
+- Configurations Railway et Netlify retirées ; script de démarrage renommé
+  `entrypoint.sh`.
+
+### Corrigé
+- Suivi de livraison en direct : l'API répondait 406 à l'en-tête d'un
+  navigateur, le suivi restait en rafraîchissement toutes les 10 s.
+- Flux temps réel plafonnés (moitié des fils du serveur) : au-delà, la page
+  de suivi passe au rafraîchissement périodique au lieu de bloquer l'API.
+- Modifier la quantité d'un article du panier contrôle désormais le stock.
+
+### Interne
+- CI backend : lint ruff, contrôle des migrations manquantes, `pytest` (qui
+  exécute aussi `backend/tests/`).
+
 ## [1.0.0] - 2026-10-28
 
 Première version de production : plateforme hébergée sur Render (API) et

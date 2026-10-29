@@ -7,4 +7,4 @@ class UsersConfig(AppConfig):
     verbose_name = "Utilisateurs"
 
     def ready(self):
-        import apps.users.models
+        import apps.users.models  # noqa: F401

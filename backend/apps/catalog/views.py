@@ -5,7 +5,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from .models import Category, Product, ProductImage, ProductVariant, Review, Store, StoreCategory, StoreSettings
@@ -14,12 +14,14 @@ from .serializers import (
     ReviewSerializer, StoreCategorySerializer, StoreSerializer, StoreSettingsSerializer,
 )
 from apps.users.permissions import IsAdmin, IsStoreOwnerOrAdmin
-from apps.monetization.models import Notification, Subscription, SubscriptionPlan, SponsoredProduct
+from apps.monetization.models import Notification, SponsoredProduct
 from apps.kyc.models import SellerKYC
 from apps.kyc.utils import seller_account_active
 from apps.monetization import services as monetization_services
 from apps.monetization.services import PRODUCT_LIMIT_EXCEEDED_MESSAGE
 from .notifications import notify_admin_store_created
+from apps.kyc.models import VerificationHistory
+from apps.kyc.utils import SELLER_KYC_SUBMITTED_STATUSES, record_kyc_audit, seller_kyc_submitted
 
 
 def _active_product_limit(store):
@@ -32,8 +34,6 @@ def _active_product_limit(store):
 
 
 def _check_product_limit(store, exclude_product_id=None):
-    from rest_framework.exceptions import ValidationError
-
     limit = _active_product_limit(store)
     if limit is None:
         return
@@ -402,9 +402,14 @@ class StoreViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # Le dossier boutique est désormais examiné AVANT le KYC vendeur.
-        # La publication de produits et les opérations financières restent
-        # protégées par seller_account_active / seller_kyc_verified.
+        # Parcours vendeur : pièce d'identité d'abord, boutique ensuite. Les
+        # deux sont examinées ensemble par l'administration (approve/reject).
+        user = self.request.user
+        if not user.is_admin() and not seller_kyc_submitted(user):
+            raise PermissionDenied(
+                "Envoyez d'abord votre pièce d'identité depuis votre espace vendeur : "
+                "l'administration l'examinera en même temps que votre boutique."
+            )
         # Règle « 1 vendeur = 1 boutique » (spec §1) : appliquée côté backend,
         # jamais dans le frontend. Un commerçant ne peut posséder qu'une seule
         # boutique, quel que soit son statut (active, en attente, suspendue) —
@@ -434,7 +439,10 @@ class StoreViewSet(viewsets.ModelViewSet):
             # Le statut ne change que par l'administration (approve / reject /
             # suspension) : un vendeur ne peut ni publier ni réactiver seul.
             serializer.validated_data.pop("status", None)
-        serializer.save()
+        store = serializer.save()
+        if not user.is_admin() and store.reopen_if_rejected():
+            # Dossier refusé puis corrigé par le vendeur : il repart en examen.
+            notify_admin_store_created(store)
 
     def perform_destroy(self, instance):
         user = self.request.user
@@ -490,18 +498,50 @@ class StoreViewSet(viewsets.ModelViewSet):
         )
         notification.send()
 
+    # --- Validation unique du dossier vendeur (boutique + identité) ---
+    #
+    # L'administration examine la boutique et la pièce d'identité de son
+    # propriétaire ensemble et rend UNE décision : approuver active la
+    # boutique et vérifie l'identité ; refuser renvoie le dossier au vendeur
+    # avec un motif. Une boutique créée par un admin n'a pas de dossier KYC.
+
+    @staticmethod
+    def _require_kyc_permission(user, permission_code):
+        if not user.has_permission(permission_code):
+            raise PermissionDenied("Votre rôle ne permet pas de statuer sur l'identité des vendeurs.")
+
+    @staticmethod
+    def _owner_kyc(store):
+        if store.owner.is_admin():
+            return None
+        return SellerKYC.objects.filter(seller=store.owner).first()
+
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
         store = self.get_object()
-        store.status = Store.Status.ACTIVE
-        store.rejection_reason = ""
-        store.save()
-        subject = f"Boutique '{store.name}' approuvée"
+        self._require_kyc_permission(request.user, "kyc.approve")
+        kyc = self._owner_kyc(store)
+        if not store.owner.is_admin() and (kyc is None or kyc.status not in SELLER_KYC_SUBMITTED_STATUSES):
+            raise ValidationError({
+                "detail": "Le vendeur n'a pas de pièce d'identité en attente : "
+                          "impossible de valider son dossier pour l'instant.",
+            })
+        with transaction.atomic():
+            store.status = Store.Status.ACTIVE
+            store.rejection_reason = ""
+            store.save()
+            if kyc is not None and kyc.status != SellerKYC.Status.VERIFIED:
+                previous_status = kyc.status
+                kyc.mark_verified()
+                VerificationHistory.record(kyc, SellerKYC.Status.VERIFIED, request.user,
+                                           previous_status=previous_status)
+                record_kyc_audit(request.user, kyc, "ADMIN_APPROVE_SELLER_KYC")
+        subject = "Votre compte vendeur est validé"
         message = (
             f"Bonjour {store.owner.first_name},\n\n"
-            f"Votre boutique '{store.name}' a été approuvée par SUNU MALL.\n\n"
-            "Dernière étape : connectez-vous à votre espace vendeur et envoyez "
-            "votre pièce d'identité. La vente sera activée après validation de votre KYC."
+            f"Votre identité et votre boutique '{store.name}' ont été validées par SUNU MALL.\n\n"
+            "Vous pouvez dès maintenant publier vos produits et recevoir des commandes "
+            "depuis votre espace vendeur."
         )
         self._notify_owner(store, subject, message)
         serializer = self.get_serializer(store)
@@ -509,17 +549,38 @@ class StoreViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="reject")
     def reject(self, request, pk=None):
+        """Refus motivé. `identity_rejected` (vrai par défaut) indique si la
+        pièce d'identité est aussi à refaire ; sinon seule la boutique est à
+        corriger."""
         store = self.get_object()
-        reason = request.data.get("reason", "Votre boutique n'a pas été validée.")
-        store.status = Store.Status.SUSPENDED
-        store.rejection_reason = reason
-        store.save()
-        subject = f"Boutique '{store.name}' rejetée"
+        self._require_kyc_permission(request.user, "kyc.reject")
+        reason = str(request.data.get("reason") or "").strip()
+        if not reason:
+            raise ValidationError({"reason": "Indiquez le motif du refus : le vendeur en a besoin pour corriger son dossier."})
+        identity_rejected = request.data.get("identity_rejected", True) not in (False, "false", "0", 0)
+        kyc = self._owner_kyc(store)
+        with transaction.atomic():
+            store.status = Store.Status.SUSPENDED
+            store.rejection_reason = reason
+            store.save()
+            if identity_rejected and kyc is not None and kyc.status in {
+                SellerKYC.Status.SUBMITTED, SellerKYC.Status.UNDER_REVIEW,
+            }:
+                previous_status = kyc.status
+                kyc.mark_rejected(reason)
+                VerificationHistory.record(kyc, SellerKYC.Status.REJECTED, request.user,
+                                           reason=reason, previous_status=previous_status)
+                record_kyc_audit(request.user, kyc, "ADMIN_REJECT_SELLER_KYC")
+            else:
+                identity_rejected = False
+        subject = "Votre dossier vendeur est à corriger"
+        to_fix = "votre pièce d'identité et votre boutique" if identity_rejected else "votre boutique"
         message = (
             f"Bonjour {store.owner.first_name},\n\n"
-            f"Votre boutique '{store.name}' a été rejetée.\n"
-            f"Raison : {reason}\n\n"
-            "Merci de corriger les informations et de soumettre à nouveau."
+            f"Votre dossier vendeur ('{store.name}') n'a pas pu être validé.\n"
+            f"Motif : {reason}\n\n"
+            f"Corrigez {to_fix} depuis votre espace vendeur : le dossier repartira "
+            "automatiquement en examen."
         )
         self._notify_owner(store, subject, message)
         serializer = self.get_serializer(store)

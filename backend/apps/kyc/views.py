@@ -27,6 +27,8 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from apps.catalog.models import Store
+from apps.catalog.notifications import notify_admin_store_created
 from apps.users.models import Role
 from apps.users.permissions import HasKycActionPermission
 from .models import DriverKYC, SellerKYC, VerificationHistory
@@ -175,6 +177,12 @@ class _KYCViewSetBase(mixins.ListModelMixin, viewsets.GenericViewSet):
         notify_kyc_uploaded(user)
         notify_kyc_submitted(user)
         self._log_security(kyc, "submit")
+        if isinstance(kyc, SellerKYC):
+            # Boutique refusée en attente de cette nouvelle pièce : le dossier
+            # complet repart en examen.
+            for store in Store.objects.filter(owner=user):
+                if store.reopen_if_rejected():
+                    notify_admin_store_created(store)
 
         return Response(
             self.serializer_class(kyc, context={"request": request}).data,
@@ -283,6 +291,9 @@ class SellerKYCViewSet(_KYCViewSetBase):
     required_role = Role.RoleName.MERCHANT
     owner_type = "seller"
     serializer_class = SellerKYCSerializer
+    # `seller` : l'écran de validation des boutiques charge le dossier
+    # d'identité du propriétaire.
+    filterset_fields = ["status", "seller"]
 
 
 class DriverKYCViewSet(_KYCViewSetBase):

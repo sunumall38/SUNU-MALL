@@ -12,10 +12,34 @@ conserve son polling de secours (10 s) en cas de coupure du flux poussé.
 """
 import json
 import logging
+import threading
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+# Flux SSE ouverts dans ce processus. Chaque flux bloque un fil gunicorn :
+# sans plafond, quelques pages de suivi ouvertes suffisent à affamer le reste
+# de l'API (offre gratuite Render : 1 processus, 8 fils).
+_open_streams = 0
+_open_streams_lock = threading.Lock()
+
+
+def try_open_stream_slot():
+    """Réserve une place de flux SSE. False si le plafond est atteint."""
+    global _open_streams
+    with _open_streams_lock:
+        if _open_streams >= settings.SSE_MAX_CONCURRENT_STREAMS:
+            return False
+        _open_streams += 1
+        return True
+
+
+def release_stream_slot():
+    """Libère une place réservée par `try_open_stream_slot`."""
+    global _open_streams
+    with _open_streams_lock:
+        _open_streams = max(0, _open_streams - 1)
 
 
 def delivery_channel(delivery_id):

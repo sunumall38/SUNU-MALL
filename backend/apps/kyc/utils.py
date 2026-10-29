@@ -31,6 +31,20 @@ def seller_kyc_status(user):
     return kyc.status if kyc else None
 
 
+#: Pièce d'identité envoyée et pas (encore) refusée : le vendeur peut
+#: déposer sa boutique, que l'administration examinera avec son identité.
+SELLER_KYC_SUBMITTED_STATUSES = frozenset({
+    SellerKYC.Status.SUBMITTED,
+    SellerKYC.Status.UNDER_REVIEW,
+    SellerKYC.Status.VERIFIED,
+})
+
+
+def seller_kyc_submitted(user):
+    """Le vendeur a envoyé sa pièce d'identité (en examen ou déjà vérifiée)."""
+    return seller_kyc_status(user) in SELLER_KYC_SUBMITTED_STATUSES
+
+
 def seller_account_active(user):
     """Le compte vendeur existe, sa vérification est validée et il n'est ni
     suspendu ni bloqué."""
@@ -104,8 +118,7 @@ def notify_kyc_approved(user):
         subject="✅ Identité vérifiée",
         message=(
             "Bonjour,\n\n"
-            "Félicitations ! Votre identité a été vérifiée.\n"
-            "Votre boutique est maintenant active sur Sunu Mall.\n\n"
+            "Félicitations ! Votre identité a été vérifiée.\n\n"
             f"Connectez-vous ici : {settings.FRONTEND_URL}/merchant\n\n"
             "Cordialement,\nL'équipe Sunu Mall"
         ),

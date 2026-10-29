@@ -25,7 +25,6 @@ from django.utils import timezone
 from apps.kyc.utils import seller_kyc_verified
 from apps.monetization.models import Subscription
 from apps.orders.models import Delivery
-from apps.users.models import Role
 
 from .models import (
     CommissionTransaction,

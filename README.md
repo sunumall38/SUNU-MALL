@@ -23,7 +23,6 @@ Ce dépôt utilise une structure de **mono-repo** regroupant toutes les briques 
 
 ```
 sunu-mall/
-├── .railway/           # Infrastructure Railway du backend (sans frontend)
 ├── backend/            # API REST - Django + Django REST Framework + Celery
 ├── frontend/           # Boutique publique + espaces vendeur/admin/livreur - React + Vite (SPA responsive)
 ├── infra/              # Configuration Docker Compose, Nginx, Variables d'env & Monitoring
@@ -123,7 +122,7 @@ La plateforme intègre une stack de surveillance prête pour la production pour 
 Les connexions Codex pour consulter les revues CodeRabbit et les incidents
 Sentry sont décrites dans [`docs/outils-mcp.md`](docs/outils-mcp.md). Elles sont
 locales aux développeurs et ne font pas partie des services à déployer sur
-Railway.
+Render.
 
 ---
 
@@ -149,23 +148,18 @@ Des scripts automatisés sont à votre disposition dans le dossier `infra/script
 
 ## 🚀 Déploiement en production
 
-### Railway (backend uniquement)
+### Production : Render (API) + Cloudflare Pages (boutique)
 
-La topologie Railway (API, workers, PostgreSQL, Redis et stockage S3 privé)
-est déclarée dans [`.railway/railway.ts`](.railway/railway.ts). Le frontend
-n'est pas déployé sur Railway. Voir le
-[guide de déploiement Railway](docs/deploiement-railway.md) pour les secrets,
-le domaine et les contrôles de santé.
+L'API Django tourne sur Render (blueprint [`render.yaml`](render.yaml), image
+construite depuis le [`Dockerfile`](Dockerfile) racine et démarrée par
+`backend/render-start.sh`). La base PostgreSQL est chez Neon, le frontend sur
+Cloudflare Pages et les emails partent par l'API Gmail (projet Google Cloud).
+Marche à suivre complète :
+[`docs/deploiement-render-cloudflare.md`](docs/deploiement-render-cloudflare.md).
 
-### Serveur Docker Compose
+### Serveur Docker Compose (auto-hébergement, hors production actuelle)
 
 Le déploiement est géré par `infra/scripts/deploy.sh` (stack `infra/docker-compose.prod.yml`).
-
-Pour un backend hébergé sur Railway et connecté à GitHub, y compris l'envoi
-d'emails transactionnels via Resend, suivez le guide
-[`docs/railway-email.md`](docs/railway-email.md). La configuration
-`backend/railway.json` inclut déjà les migrations, le démarrage Gunicorn et la
-sonde de santé.
 
 ### Prérequis serveur (à faire une fois)
 1. Cloner le repo et se placer sur la branche à déployer.

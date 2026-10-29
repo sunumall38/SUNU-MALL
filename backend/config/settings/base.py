@@ -92,8 +92,8 @@ DATABASES = {
     }
 }
 
-# Railway fournit une URL de connexion complète lorsque le service PostgreSQL
-# est lié au backend. Elle prend la priorité sur les variables POSTGRES_*
+# L'hébergeur (Neon en production) fournit une URL de connexion complète.
+# Elle prend la priorité sur les variables POSTGRES_*
 # utilisées par Docker Compose, qui restent disponibles pour le développement.
 DATABASE_URL = config("DATABASE_URL", default="")
 if DATABASE_URL:
@@ -106,6 +106,16 @@ if DATABASE_URL:
 
 # --- Redis (cache + broker Celery) ---
 REDIS_URL = config("REDIS_URL", default="redis://redis:6379/0")
+
+# Plafond de flux SSE (suivi de livraison) ouverts en même temps par
+# processus gunicorn. Chaque flux occupe un fil : par défaut, la moitié des
+# fils reste réservée au reste de l'API. Au-delà, le flux répond 204 et le
+# frontend bascule sur son polling de secours.
+SSE_MAX_CONCURRENT_STREAMS = config(
+    "SSE_MAX_CONCURRENT_STREAMS",
+    default=max(1, config("GUNICORN_THREADS", default=4, cast=int) // 2),
+    cast=int,
+)
 
 # --- Celery ---
 CELERY_BROKER_URL = REDIS_URL
@@ -376,9 +386,9 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Email transactionnel. Railway bloque SMTP sur ses offres Free/Trial/Hobby ;
-# Resend passe par HTTPS et fonctionne donc sur toutes les offres. Le mode
-# SMTP reste disponible pour les autres hébergeurs et les comptes Railway Pro.
+# Email transactionnel. Render bloque le SMTP sortant sur son offre gratuite :
+# la production passe par l'API Gmail (HTTPS). Resend (HTTPS aussi) et SMTP
+# restent disponibles pour d'autres hébergeurs.
 EMAIL_PROVIDER = config("EMAIL_PROVIDER", default="").strip().lower()
 RESEND_API_KEY = config("RESEND_API_KEY", default="")
 

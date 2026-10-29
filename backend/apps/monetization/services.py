@@ -9,7 +9,6 @@ limite.
 from django.conf import settings
 from django.utils import timezone
 
-from apps.users.models import Role
 
 from .models import Subscription, SubscriptionPlan
 

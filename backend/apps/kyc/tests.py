@@ -318,7 +318,7 @@ class KYCSubmitTests(TestCase):
 
 @KYC_FS
 class KYCGatingTests(TestCase):
-    """Sans KYC : boutique soumise possible, mais vente et courses restent bloquées."""
+    """Pièce d'identité d'abord : sans elle, ni boutique, ni vente, ni courses."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -345,11 +345,25 @@ class KYCGatingTests(TestCase):
             status=DriverKYC.Status.VERIFIED, submitted_at=None,
         )
 
-    def test_merchant_can_submit_store_before_verified_kyc(self):
+    def test_merchant_cannot_create_store_before_sending_kyc(self):
         self.client.force_authenticate(self.merchant)
         response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Store.objects.filter(owner=self.merchant).exists())
+
+    def test_merchant_can_submit_store_once_kyc_is_sent(self):
+        kyc = self._verify_seller()
+        kyc.mark_submitted()
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["status"], Store.Status.INACTIVE)
+
+    def test_merchant_with_rejected_kyc_cannot_create_store(self):
+        self._verify_seller().mark_rejected("Photo illisible")
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
+        self.assertEqual(response.status_code, 403)
 
     def test_merchant_can_create_store_with_verified_kyc(self):
         self._verify_seller()
@@ -496,7 +510,7 @@ class KYCAdminWorkflowTests(TestCase):
         self.assertIsInstance(response.data["fraud_flags"], list)
 
     def test_own_dossier_never_leaks_history_or_fraud_flags(self):
-        kyc = self._kyc()
+        self._kyc()
         self.client.force_authenticate(self.merchant)
         response = self.client.get("/api/kyc/seller-kyc/me/")
         self.assertEqual(response.status_code, 200)
@@ -552,7 +566,7 @@ class KYCReusedDocumentTests(TestCase):
         self.assertIn("phone_reused", flags)
 
     def test_own_dossier_merchant_sees_no_flags(self):
-        kyc = SellerKYC.objects.create(
+        SellerKYC.objects.create(
             seller=self.merchant_a, document_type="cni",
             document_front="kyc/sellers/1/f.jpg", document_back="kyc/sellers/1/b.jpg",
             status=SellerKYC.Status.VERIFIED,
@@ -630,3 +644,128 @@ class KYCPublishGatingTests(TestCase):
     def test_no_badge_when_not_verified(self):
         store_response = self.client.get(f"/api/catalog/stores/{self.store.id}/")
         self.assertEqual(store_response.data["is_verified_seller"], False)
+
+
+@KYC_FS
+class SellerSingleValidationTests(TestCase):
+    """Une seule décision de l'administration pour le dossier vendeur :
+    boutique et pièce d'identité sont validées ou refusées ensemble."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.override_storage = override_settings(KYC_STORAGE_LOCATION=self.tmp)
+        self.override_storage.enable()
+        self.addCleanup(self.override_storage.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+        self.admin = make_user("admin@sunu.test", Role.RoleName.ADMIN)
+        self.merchant = make_user("m@sunu.test", Role.RoleName.MERCHANT)
+        self.client = APIClient()
+
+    def _submit_kyc(self):
+        self.client.force_authenticate(self.merchant)
+        return self.client.post(
+            "/api/kyc/seller-kyc/submit/",
+            {"document_type": "cni", "document_front": cni_upload("f.jpg"), "document_back": cni_upload("b.jpg")},
+            format="multipart",
+        )
+
+    def _create_store(self):
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        return Store.objects.get(pk=response.data["id"])
+
+    def _as_admin(self):
+        self.client.force_authenticate(self.admin)
+
+    def test_approval_activates_store_and_verifies_identity(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+
+        response = self.client.post(f"/api/catalog/stores/{store.id}/approve/")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        store.refresh_from_db()
+        kyc = SellerKYC.objects.get(seller=self.merchant)
+        self.assertEqual(store.status, Store.Status.ACTIVE)
+        self.assertEqual(kyc.status, SellerKYC.Status.VERIFIED)
+        self.assertTrue(VerificationHistory.objects.filter(kyc=kyc, new_status=SellerKYC.Status.VERIFIED,
+                                                          reviewed_by=self.admin).exists())
+        self.assertTrue(KYCAuditLog.objects.filter(kyc_id=str(kyc.id), action="ADMIN_APPROVE_SELLER_KYC").exists())
+        self.assertTrue(Notification.objects.filter(user=self.merchant, subject__icontains="validé").exists())
+
+    def test_approval_refused_without_pending_identity(self):
+        store = Store.objects.create(owner=self.merchant, name="Ancienne boutique")
+        self._as_admin()
+        response = self.client.post(f"/api/catalog/stores/{store.id}/approve/")
+        self.assertEqual(response.status_code, 400)
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.INACTIVE)
+
+    def test_admin_without_kyc_permission_cannot_decide(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self.client.force_authenticate(make_user("support@sunu.test", Role.RoleName.ADMIN_SUPPORT))
+        self.assertEqual(self.client.post(f"/api/catalog/stores/{store.id}/approve/").status_code, 403)
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.INACTIVE)
+
+    def test_rejection_requires_a_reason(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+        response = self.client.post(f"/api/catalog/stores/{store.id}/reject/", {}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejection_sends_back_store_and_identity(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+
+        response = self.client.post(f"/api/catalog/stores/{store.id}/reject/",
+                                    {"reason": "Pièce floue"}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        store.refresh_from_db()
+        kyc = SellerKYC.objects.get(seller=self.merchant)
+        self.assertTrue(store.is_rejected())
+        self.assertEqual(kyc.status, SellerKYC.Status.REJECTED)
+        self.assertEqual(kyc.rejection_reason, "Pièce floue")
+
+    def test_store_only_rejection_keeps_identity_in_review(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+        self.client.post(f"/api/catalog/stores/{store.id}/reject/",
+                         {"reason": "Adresse incomplète", "identity_rejected": False}, format="json")
+        self.assertEqual(SellerKYC.objects.get(seller=self.merchant).status, SellerKYC.Status.SUBMITTED)
+
+    def test_new_identity_document_sends_rejected_dossier_back_to_review(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+        self.client.post(f"/api/catalog/stores/{store.id}/reject/", {"reason": "Pièce floue"}, format="json")
+
+        self.assertEqual(self._submit_kyc().status_code, 200)
+
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.INACTIVE)
+        self._as_admin()
+        self.assertEqual(self.client.post(f"/api/catalog/stores/{store.id}/approve/").status_code, 200)
+
+    def test_store_correction_sends_rejected_dossier_back_to_review(self):
+        self._submit_kyc()
+        store = self._create_store()
+        self._as_admin()
+        self.client.post(f"/api/catalog/stores/{store.id}/reject/",
+                         {"reason": "Adresse incomplète", "identity_rejected": False}, format="json")
+
+        self.client.force_authenticate(self.merchant)
+        response = self.client.patch(f"/api/catalog/stores/{store.id}/",
+                                     {"address": "12 rue Carnot, Dakar"}, format="json")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        store.refresh_from_db()
+        self.assertEqual(store.status, Store.Status.INACTIVE)

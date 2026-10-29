@@ -2,6 +2,9 @@ import { useState } from "react";
 import { CheckCircle2, MapPin, Phone, Store as StoreIcon, Tag } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
+import { ApiError } from "@/lib/api";
+import { SellerIdentitySummary } from "@/components/kyc/SellerIdentitySummary";
+import { Modal } from "@/components/ui/Modal";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +13,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import { formatDate } from "@/lib/utils";
+import type { Store } from "@/types";
 
 const PAGE_SIZE = 20;
 
@@ -17,6 +21,10 @@ export default function AdminShopsPage() {
   const [pendingPage, setPendingPage] = useState(1);
   const [allPage, setAllPage] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ storeId: string; message: string } | null>(null);
+  const [rejecting, setRejecting] = useState<Store | null>(null);
+  const [reason, setReason] = useState("");
+  const [identityRejected, setIdentityRejected] = useState(true);
 
   const {
     data: pendingResult,
@@ -41,22 +49,42 @@ export default function AdminShopsPage() {
     refetchAll();
   }
 
+  function failure(storeId: string, err: unknown) {
+    const detail = err instanceof ApiError ? (err.data as { detail?: string } | null)?.detail : undefined;
+    setActionError({ storeId, message: detail ?? "L'action a échoué. Réessayez." });
+  }
+
   async function approve(id: string) {
     setBusy(id);
+    setActionError(null);
     try {
       await catalogApi.approveStore(id);
       refetchBoth();
+    } catch (err) {
+      failure(id, err);
     } finally {
       setBusy(null);
     }
   }
 
-  async function reject(id: string) {
-    const reason = prompt("Raison du rejet (optionnel)") ?? undefined;
+  function openReject(store: Store) {
+    setReason("");
+    setIdentityRejected(true);
+    setActionError(null);
+    setRejecting(store);
+  }
+
+  async function confirmReject() {
+    if (!rejecting || !reason.trim()) return;
+    const id = rejecting.id;
     setBusy(id);
     try {
-      await catalogApi.rejectStore(id, reason);
+      await catalogApi.rejectStore(id, reason.trim(), identityRejected);
+      setRejecting(null);
       refetchBoth();
+    } catch (err) {
+      setRejecting(null);
+      failure(id, err);
     } finally {
       setBusy(null);
     }
@@ -66,8 +94,11 @@ export default function AdminShopsPage() {
     <div className="flex flex-col gap-8">
       <div>
         <h1 className="mb-4 flex items-center gap-2 font-display text-2xl font-bold text-gray-900">
-          <StoreIcon className="h-6 w-6 text-orange" /> Validation des boutiques
+          <StoreIcon className="h-6 w-6 text-orange" /> Validation des vendeurs
         </h1>
+        <p className="-mt-2 mb-4 text-sm text-muted-foreground">
+          Une seule décision par dossier : valider active la boutique et vérifie l'identité du vendeur.
+        </p>
         {loadingPending ? (
           <Spinner label="Chargement…" />
         ) : pendingError ? (
@@ -96,10 +127,10 @@ export default function AdminShopsPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Button size="sm" loading={busy === store.id} onClick={() => approve(store.id)}>
-                        Approuver
+                        Valider le dossier
                       </Button>
-                      <Button size="sm" variant="danger" loading={busy === store.id} onClick={() => reject(store.id)}>
-                        Rejeter
+                      <Button size="sm" variant="danger" loading={busy === store.id} onClick={() => openReject(store)}>
+                        Refuser
                       </Button>
                     </div>
                   </div>
@@ -121,6 +152,10 @@ export default function AdminShopsPage() {
                     )}
                   </div>
                   {store.description && <p className="text-sm text-ink/80">{store.description}</p>}
+                  <SellerIdentitySummary sellerId={store.owner} />
+                  {actionError?.storeId === store.id && (
+                    <p className="rounded-lg bg-red-50 p-2 text-sm text-danger">{actionError.message}</p>
+                  )}
                 </Card>
               ))}
             </div>
@@ -156,6 +191,34 @@ export default function AdminShopsPage() {
           </>
         )}
       </div>
+
+      {rejecting && (
+        <Modal open onClose={() => setRejecting(null)} title="Refuser le dossier">
+          <p className="text-sm text-ink">
+            Dossier de la boutique « {rejecting.name} ». Le vendeur verra ce motif pour corriger son dossier, qui
+            repartira ensuite automatiquement en examen.
+          </p>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={3}
+            placeholder="Motif du refus (obligatoire)"
+            className="mt-3 w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-ink outline-none focus:border-orange focus:ring-2 focus:ring-orange/20"
+          />
+          <label className="mt-3 flex items-center gap-2 text-sm text-ink">
+            <input type="checkbox" checked={identityRejected} onChange={(e) => setIdentityRejected(e.target.checked)} />
+            La pièce d'identité est aussi à refaire
+          </label>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setRejecting(null)}>
+              Annuler
+            </Button>
+            <Button variant="danger" disabled={!reason.trim()} loading={busy === rejecting.id} onClick={confirmReject}>
+              Refuser le dossier
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

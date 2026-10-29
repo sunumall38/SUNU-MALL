@@ -7,8 +7,8 @@ from decimal import Decimal
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -17,7 +17,7 @@ from apps.users.models import User, Role, UserRole
 from apps.catalog.models import Store
 from apps.orders.geoutils import compute_eta_seconds, point_in_polygon
 from apps.orders.models import (
-    Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryTracking,
+    Address, Delivery, DeliveryPartner, DeliveryTracking,
     DeliveryZone, Driver, GlobalOrder, Order, PartnerInvoice, PartnerZonePricing,
 )
 from apps.orders.pricing import best_delivery_partner, compute_delivery_fee
@@ -353,6 +353,19 @@ class DeliveryTrackingTests(TestCase):
         self.assertEqual(response.data["last_position"]["latitude"], Decimal("14.716677"))
 
 
+def _close_stream(response):
+    """Ferme un flux SSE de test comme le ferait le serveur WSGI.
+
+    `close()` émet `request_finished` : son receveur `close_old_connections`
+    fermerait la connexion portant la transaction du test (PostgreSQL), et
+    tous les tests suivants échoueraient. Le client de test rebranche ce
+    receveur pendant la fermeture du flux : on neutralise donc la fermeture
+    de la connexion elle-même, le temps de l'appel.
+    """
+    with patch.object(connections[DEFAULT_DB_ALIAS], "close_if_unusable_or_obsolete"):
+        response.close()
+
+
 class DeliveryEventsStreamTests(TestCase):
     """Endpoint SSE : instantané à la connexion + confinement par sécurité."""
 
@@ -388,10 +401,52 @@ class DeliveryEventsStreamTests(TestCase):
         response = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
         # Lecture d'un seul chunk : le flux SSE est infini, on ne le matérialise pas.
         chunk = next(response.streaming_content).decode("utf-8")
+        _close_stream(response)
         self.assertIn("data:", chunk)
         self.assertIn('"event": "snapshot"', chunk)
         self.assertIn('"status": "pending"', chunk)
         self.assertIn('"eta_seconds"', chunk)
+
+    def test_events_stream_accepts_browser_event_source_header(self):
+        # Un EventSource envoie toujours cet en-tête : il ne doit pas valoir 406.
+        self.client.force_authenticate(self.customer)
+        response = self.client.get(
+            f"/api/orders/deliveries/{self.delivery.id}/events/", HTTP_ACCEPT="text/event-stream",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        chunk = next(response.streaming_content).decode("utf-8")
+        _close_stream(response)
+        self.assertIn('"event": "snapshot"', chunk)
+
+    def test_events_stream_rejects_stranger_with_browser_header(self):
+        stranger = self._make_user("stranger-sse@example.com", Role.RoleName.CLIENT)
+        self.client.force_authenticate(stranger)
+        response = self.client.get(
+            f"/api/orders/deliveries/{self.delivery.id}/events/", HTTP_ACCEPT="text/event-stream",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response["Content-Type"], "application/json")
+
+    @override_settings(SSE_MAX_CONCURRENT_STREAMS=1)
+    def test_events_stream_returns_204_when_all_slots_are_taken(self):
+        self.client.force_authenticate(self.customer)
+        first = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+
+        second = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        _close_stream(first)
+        # 204 : l'EventSource s'arrête et le frontend passe au polling.
+        self.assertEqual(second.status_code, status.HTTP_204_NO_CONTENT)
+
+    @override_settings(SSE_MAX_CONCURRENT_STREAMS=1)
+    def test_events_stream_slot_is_released_on_close(self):
+        self.client.force_authenticate(self.customer)
+        # Fermé sans jamais avoir été lu : la place doit quand même revenir.
+        _close_stream(self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/"))
+
+        response = self.client.get(f"/api/orders/deliveries/{self.delivery.id}/events/")
+        _close_stream(response)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_events_stream_forbidden_for_stranger(self):
         stranger = self._make_user("stranger@example.com", Role.RoleName.CLIENT)

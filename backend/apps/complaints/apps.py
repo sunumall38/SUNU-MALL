@@ -7,4 +7,4 @@ class ComplaintsConfig(AppConfig):
     verbose_name = "Plaintes et tickets support"
 
     def ready(self):
-        import apps.complaints.models
+        import apps.complaints.models  # noqa: F401

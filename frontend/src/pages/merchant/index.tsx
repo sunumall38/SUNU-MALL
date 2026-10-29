@@ -111,7 +111,7 @@ export default function MerchantDashboardPage() {
         <EmptyState
           icon={StoreIcon}
           title="Vous n'avez pas encore de boutique"
-          description="Créez d'abord votre boutique. Après sa validation par l'administration, vous pourrez envoyer votre dossier KYC."
+          description="Votre pièce d'identité est bien reçue. Créez maintenant votre boutique : l'administration examinera les deux ensemble."
           action={
             <Link to="/create-shop">
               <Button>Créer ma boutique</Button>
@@ -265,14 +265,19 @@ export default function MerchantDashboardPage() {
           {store.status === "inactive" && (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="h-3.5 w-3.5 shrink-0" />
-              Votre boutique est en cours de vérification par notre équipe.
+              Votre dossier (identité et boutique) est en cours d'examen par notre équipe.
             </p>
           )}
           {store.status === "suspended" && store.rejection_reason && (
-            <p className="flex items-center gap-1.5 text-xs text-danger">
-              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-              Raison : {store.rejection_reason}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-xs text-danger">
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+                Raison : {store.rejection_reason}
+              </p>
+              <Link to="/create-shop">
+                <Button size="sm" variant="secondary">Corriger ma boutique</Button>
+              </Link>
+            </div>
           )}
         </Card>
       ))}
