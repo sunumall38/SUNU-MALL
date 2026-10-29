@@ -1139,3 +1139,15 @@ class ProvisionalPasswordEnforcementTests(TestCase):
             f"/api/orders/deliveries/00000000-0000-0000-0000-000000000000/events/?access_token={access}"
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class OpenApiAuthenticationSchemeTests(TestCase):
+    """Le schéma OpenAPI reconnaît les classes d'authentification du projet."""
+
+    def test_jwt_and_session_schemes_are_documented(self):
+        from drf_spectacular.generators import SchemaGenerator
+
+        schema = SchemaGenerator().get_schema(request=None, public=True)
+        self.assertEqual(set(schema["components"]["securitySchemes"]), {"jwtAuth", "cookieAuth"})
+        security = schema["paths"]["/api/auth/change-password/"]["post"]["security"]
+        self.assertIn({"jwtAuth": []}, security)

@@ -1004,7 +1004,9 @@ class PartnerSpaceApiTests(TestCase):
         self.assertEqual(float(response.data[0]["client_fee"]), 1200.0)
 
     def test_partner_cannot_reactivate_itself(self):
-        self.partner.status = DeliveryPartner.Status.SUSPENDED
+        # Partenaire inactif (le partenaire suspendu, lui, ne peut plus rien
+        # modifier : voir test_suspended_partner_is_read_only).
+        self.partner.status = DeliveryPartner.Status.INACTIVE
         self.partner.save()
         self._as(self.partner_user)
         response = self.client.patch(
@@ -1014,7 +1016,7 @@ class PartnerSpaceApiTests(TestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.partner.refresh_from_db()
-        self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
+        self.assertEqual(self.partner.status, DeliveryPartner.Status.INACTIVE)
         self.assertEqual(self.partner.name, "CityCourier")
         self.assertEqual(self.partner.contact_name, "Moussa")
 

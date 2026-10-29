@@ -4,7 +4,7 @@
 # Django 5.2 LTS : correctifs de sécurité jusqu'en avril 2028 (5.0 n'en
 # reçoit plus depuis avril 2025).
 Django>=5.2,<5.3
-djangorestframework>=3.16,<3.17
+djangorestframework>=3.18.3,<3.19
 django-cors-headers>=4.7,<4.8
 django-filter>=25.1,<25.2
 drf-spectacular>=0.28,<0.29
@@ -19,7 +19,7 @@ django-celery-beat>=2.8,<2.9
 # Stockage de fichiers (compatible MinIO via API S3)
 django-storages>=1.14.5,<1.15
 boto3>=1.34,<1.35
-Pillow>=10.3,<10.4
+Pillow>=13.0,<13.1
 
 # Configuration & sécurité
 python-decouple>=3.8,<3.9

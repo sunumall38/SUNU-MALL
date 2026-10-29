@@ -545,6 +545,7 @@ class DriverViewSet(viewsets.ModelViewSet):
             partner = DeliveryPartner.objects.filter(user=request.user).first()
             if partner is None:
                 raise PermissionDenied("Aucune entreprise partenaire n'est liée à ce compte.")
+            _ensure_partner_not_suspended(partner)
 
         email = (request.data.get("email") or "").strip().lower()
         first_name = (request.data.get("first_name") or "").strip()
@@ -1501,6 +1502,13 @@ def _mask(account):
     return f"…{account[-4:]}" if account else "aucun"
 
 
+def _ensure_partner_not_suspended(partner):
+    if partner.status == DeliveryPartner.Status.SUSPENDED:
+        raise PermissionDenied(
+            "Votre entreprise est suspendue : ses réglages ne sont plus modifiables. Contactez Sunu Mall."
+        )
+
+
 def _notify_payout_change(request, partner, previous):
     from apps.monetization.models import Notification
     from apps.security.utils import log_security_event
@@ -1615,6 +1623,10 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         partner = DeliveryPartner.objects.filter(user=request.user).first()
         if partner is None:
             raise NotFound("Aucune entreprise partenaire n'est liée à votre compte.")
+        # Partenaire suspendu : consultation seulement (livraisons, factures),
+        # aucun réglage modifiable — notamment pas le compte de versement.
+        if request.method not in permissions.SAFE_METHODS:
+            _ensure_partner_not_suspended(partner)
         return partner
 
     def profile(self, request):
