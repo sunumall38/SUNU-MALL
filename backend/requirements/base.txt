@@ -1,21 +1,23 @@
 # Dépendances de base — toujours nécessaires, quel que soit l'environnement.
 # Garder ce fichier léger : tout ce qui est spécifique à l'IA va dans ia.txt
 
-Django>=5.0,<5.1
-djangorestframework>=3.15,<3.16
-django-cors-headers>=4.3,<4.4
-django-filter>=24.1,<24.2
-drf-spectacular>=0.27,<0.28
+# Django 5.2 LTS : correctifs de sécurité jusqu'en avril 2028 (5.0 n'en
+# reçoit plus depuis avril 2025).
+Django>=5.2,<5.3
+djangorestframework>=3.16,<3.17
+django-cors-headers>=4.7,<4.8
+django-filter>=25.1,<25.2
+drf-spectacular>=0.28,<0.29
 psycopg2-binary>=2.9,<3.0
 dj-database-url>=2.2,<3.0
 
 # Tâches asynchrones
 celery>=5.4,<5.5
 redis>=5.0,<5.1
-django-celery-beat>=2.6,<2.7
+django-celery-beat>=2.8,<2.9
 
 # Stockage de fichiers (compatible MinIO via API S3)
-django-storages>=1.14,<1.15
+django-storages>=1.14.5,<1.15
 boto3>=1.34,<1.35
 Pillow>=10.3,<10.4
 
@@ -23,11 +25,10 @@ Pillow>=10.3,<10.4
 python-decouple>=3.8,<3.9
 gunicorn>=22.0,<22.1
 # Sert la statique collectée (admin Django, etc.) sans serveur séparé en prod.
-whitenoise>=6.6,<6.8
+whitenoise>=6.9,<6.10
 
 # JWT Authentication
-djangorestframework-simplejwt>=5.3,<5.4
-drf-spectacular>=0.27,<0.28
+djangorestframework-simplejwt>=5.5,<5.6
 
 # Client HTTP des passerelles de paiement (Wave, Orange Money) et autres
 # appels aux API tierces du projet. requis>=2.31,<3 garde l'API stable de

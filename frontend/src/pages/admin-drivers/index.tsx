@@ -132,11 +132,12 @@ export default function AdminDriversPage() {
                 required
               />
               <Input
-                label="Téléphone"
+                label="Téléphone (identifiant de connexion)"
                 type="tel"
                 value={form.phone}
                 onChange={(e) => update("phone", e.target.value)}
                 placeholder="+221..."
+                required
               />
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-ink">Type de véhicule</span>

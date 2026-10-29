@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/api";
 import { changePassword } from "@/api/auth";
+import { roleHomePath } from "@/lib/roles";
 import { useAuthStore } from "@/store/authStore";
 
 const schema = z
@@ -26,6 +27,7 @@ type FormValues = z.infer<typeof schema>;
 export default function DriverPasswordChangePage() {
   const navigate = useNavigate();
   const updateUser = useAuthStore((s) => s.updateUser);
+  const roles = useAuthStore((s) => s.user?.roles ?? []);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -43,7 +45,8 @@ export default function DriverPasswordChangePage() {
         confirm_password: values.confirm_password,
       });
       updateUser({ must_change_password: false });
-      navigate("/driver-dashboard", { replace: true });
+      // Page partagée livreur / partenaire : retour à l'accueil de l'espace.
+      navigate(roleHomePath(roles), { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
         const data = Array.isArray(err.data)

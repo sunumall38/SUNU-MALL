@@ -6,13 +6,27 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 
 ## [Non publié]
 
+### Ajouté
+- Partenaires de livraison : compte créé et lié depuis l'administration,
+  factures mensuelles automatiques (tâches quotidiennes), coordonnées de
+  versement (Wave, Orange Money, IBAN), liste des livraisons paginée.
+- Une seule page de connexion pour tous les rôles ; champ téléphone avec
+  l'indicatif +221 et le format guidé.
+
 ### Modifié
+- Django 5.0 → 5.2 LTS (correctifs de sécurité jusqu'en avril 2028 ; la 5.0
+  n'en reçoit plus depuis avril 2025), avec DRF 3.16, django-filter 25.1,
+  drf-spectacular 0.28, SimpleJWT 5.5, django-celery-beat 2.8, WhiteNoise 6.9.
 - Parcours vendeur : pièce d'identité d'abord, puis boutique ; l'administration
   rend une seule décision sur le dossier complet (boutique active et identité
   vérifiée, ou refus motivé). Un dossier refusé repart en examen dès que le
   vendeur corrige sa boutique ou renvoie sa pièce. Statuer exige les
   permissions `kyc.approve` / `kyc.reject`.
 - Ventes en direct masquées (navigation, accueil, route) en attendant l'offre.
+- Assistant de chat masqué tant que la clé IA n'est pas configurée ; le bouton
+  de la page Contact propose d'appeler.
+- Vraies coordonnées (téléphone, e-mail, adresse) et horaires de bureau ;
+  plus de promesse de support 24/7.
 - Configurations Railway et Netlify retirées ; script de démarrage renommé
   `entrypoint.sh`.
 
@@ -22,6 +36,23 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 - Flux temps réel plafonnés (moitié des fils du serveur) : au-delà, la page
   de suivi passe au rafraîchissement périodique au lieu de bloquer l'API.
 - Modifier la quantité d'un article du panier contrôle désormais le stock.
+- Dernière position du livreur : deux points GPS de même horodatage sont
+  départagés (la position affichée pouvait être l'avant-dernière).
+
+### Sécurité
+- Mot de passe provisoire (livreurs, partenaires) : son changement est imposé
+  par l'API elle-même, plus seulement par l'interface ; avant, le compte
+  restait utilisable avec le mot de passe provisoire.
+- Coordonnées de versement des partenaires : mot de passe exigé à chaque
+  modification, administration alertée par e-mail, changement récent signalé
+  sur les factures à régler ; IBAN contrôlé (clé mod 97) et numéro mobile
+  exigé pour Wave / Orange Money.
+- Factures partenaires (coordonnées bancaires, « marquer payée ») réservées au
+  super admin et à l'administration financière ; double validation impossible.
+- Un partenaire sans compte lié ne peut plus être activé, quelle que soit la
+  voie (action, modification directe, administration Django).
+- Les e-mails de facture partent après validation de l'enregistrement : plus
+  d'envoi d'une facture ensuite annulée.
 
 ### Interne
 - CI backend : lint ruff, contrôle des migrations manquantes, `pytest` (qui

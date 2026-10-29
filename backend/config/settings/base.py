@@ -278,8 +278,10 @@ DRIVER_ASSIGNMENT_RADIUS_KM = config("DRIVER_ASSIGNMENT_RADIUS_KM", default=5, c
 # DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
+        # JWT et session, avec blocage des comptes au mot de passe provisoire
+        # non changé (voir apps/auth/authentication.py).
+        "apps.auth.authentication.PasswordChangeEnforcingJWTAuthentication",
+        "apps.auth.authentication.PasswordChangeEnforcingSessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -462,6 +464,9 @@ ORANGE_MONEY_CURRENCY = config("ORANGE_MONEY_CURRENCY", default="XOF")
 # l'URL publique de l'API : c'est elle que Wave/Orange Money notifient
 # (notif_url), pas le frontend. Doivent être accessibles publiquement.
 FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3004")
+
+# Délai de paiement des factures partenaires (jours après l'émission).
+PARTNER_INVOICE_PAYMENT_DAYS = config("PARTNER_INVOICE_PAYMENT_DAYS", default=15, cast=int)
 BACKEND_URL = config("BACKEND_URL", default="http://localhost:8080/api")
 
 # --- IA (apps/ia/) : génération de description produit, assistant client ---

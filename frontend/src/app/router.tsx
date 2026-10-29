@@ -71,7 +71,8 @@ export const router = createBrowserRouter([
       { path: "/guest-login", lazy: page(() => import("@/pages/guest-login")) },
       { path: "/mot-de-passe-oublie", lazy: page(() => import("@/pages/forgot-password")) },
       { path: "/reinitialiser-mot-de-passe", lazy: page(() => import("@/pages/reset-password")) },
-      { path: "/driver-login", lazy: page(() => import("@/pages/driver-login")) },
+      // Ancienne page de connexion livreur : une seule page de connexion pour tous les rôles.
+      { path: "/driver-login", element: <Navigate to="/login" replace /> },
     ],
   },
 
@@ -155,6 +156,7 @@ export const router = createBrowserRouter([
       { path: "/partner-finances", lazy: page(() => import("@/pages/partner-finances")) },
       { path: "/partner-profile", lazy: page(() => import("@/pages/partner-profile")) },
       { path: "/partner-notifications", lazy: page(() => import("@/pages/notifications")) },
+      { path: "/partner-password-change", lazy: page(() => import("@/pages/driver-password-change")) },
     ],
   },
 

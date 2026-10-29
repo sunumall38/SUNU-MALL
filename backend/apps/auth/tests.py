@@ -1081,3 +1081,61 @@ class RegistrationChannelTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("verification_channel", response.data)
         self.assertFalse(User.objects.filter(email="sms@example.com").exists())
+
+
+class ProvisionalPasswordEnforcementTests(TestCase):
+    """Le mot de passe provisoire doit être changé avant tout autre appel à l'API.
+
+    Contrôle côté serveur, avec un vrai jeton JWT : `force_authenticate`
+    contournerait les classes d'authentification qui portent ce contrôle.
+    """
+
+    def setUp(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="partner@example.com",
+            email="partner@example.com",
+            phone="+221771112233",
+            password="provisoire123",
+            is_verified=True,
+            must_change_password=True,
+        )
+        Role.objects.get_or_create(name=Role.RoleName.DRIVER)
+        UserRole.objects.create(user=self.user, role=Role.objects.get(name=Role.RoleName.DRIVER))
+        self.refresh = RefreshToken.for_user(self.user)
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.refresh.access_token}")
+
+    def test_other_endpoints_are_refused_until_password_changed(self):
+        response = self.client.get("/api/orders/drivers/me/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "password_change_required")
+
+    def test_change_password_then_full_access(self):
+        response = self.client.post(
+            "/api/auth/change-password/",
+            {
+                "current_password": "provisoire123",
+                "new_password": "definitif456",
+                "confirm_password": "definitif456",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.get("/api/orders/drivers/me/")
+        self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_token_refresh_and_logout_stay_available(self):
+        refresh = self.client.post("/api/auth/token/refresh/", {"refresh": str(self.refresh)}, format="json")
+        self.assertEqual(refresh.status_code, status.HTTP_200_OK)
+        logout = self.client.post("/api/auth/logout/", {"refresh": str(self.refresh)}, format="json")
+        self.assertNotEqual(logout.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_live_stream_token_is_refused_too(self):
+        self.client.credentials()
+        access = str(self.refresh.access_token)
+        response = self.client.get(
+            f"/api/orders/deliveries/00000000-0000-0000-0000-000000000000/events/?access_token={access}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

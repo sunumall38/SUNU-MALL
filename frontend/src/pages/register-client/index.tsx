@@ -21,6 +21,12 @@ export default function RegisterClientPage() {
           Se connecter
         </Link>
       </p>
+      <p className="mt-2 text-center text-sm text-muted-foreground">
+        Vous êtes commerçant ?{" "}
+        <Link to="/register-merchant" className="font-semibold text-orange transition-colors hover:text-orange-dark">
+          Ouvrir une boutique
+        </Link>
+      </p>
     </div>
   );
 }

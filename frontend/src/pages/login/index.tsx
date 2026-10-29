@@ -11,9 +11,10 @@ import * as authApi from "@/api/auth";
 import { safeNextPath } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
 import { roleHomePath } from "@/lib/roles";
+import { normalizeSenegalPhone, SENEGAL_PHONE_ERROR, SENEGAL_PHONE_EXAMPLE } from "@/lib/phone";
 
 const schema = z.object({
-  phone: z.string().min(9, "Numéro de téléphone invalide"),
+  phone: z.string().refine((v) => normalizeSenegalPhone(v) !== null, SENEGAL_PHONE_ERROR),
   password: z.string().min(1, "Mot de passe requis"),
 });
 
@@ -35,8 +36,9 @@ export default function LoginPage() {
   async function onSubmit(values: FormValues) {
     setServerError(null);
     setNeedsVerification(null);
+    const phone = normalizeSenegalPhone(values.phone) ?? values.phone;
     try {
-      const data = await authApi.login(values.phone, values.password);
+      const data = await authApi.login(phone, values.password);
       loginSuccess(data);
       // `next` est une valeur non fiable (paramètre d'URL) : on refuse toute
       // redirection hors-site (URL absolue, « //hôte », « /\hôte »…).
@@ -44,7 +46,7 @@ export default function LoginPage() {
       navigate(next || roleHomePath(data.user.roles), { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        setNeedsVerification(values.phone);
+        setNeedsVerification(phone);
       } else if (err instanceof ApiError) {
         const data = err.data as Record<string, unknown>;
         setServerError((data?.error as string) || "Identifiants incorrects.");
@@ -70,10 +72,12 @@ export default function LoginPage() {
         <Input
           label="Numéro de téléphone"
           type="tel"
-          autoComplete="tel"
+          autoComplete="tel-national"
           inputMode="tel"
-          placeholder="+221 77 123 45 67"
+          placeholder={SENEGAL_PHONE_EXAMPLE}
           icon={Phone}
+          prefix="+221"
+          hint="Les 9 chiffres de votre numéro, sans l'indicatif."
           {...register("phone")}
           error={errors.phone?.message}
         />
@@ -97,24 +101,20 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <div className="mt-6 flex flex-col gap-1.5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
+      <div className="mt-6 flex flex-col gap-2 border-t border-border pt-5 text-center text-sm text-muted-foreground">
         <p>
           Pas encore de compte ?{" "}
           <Link to="/register-client" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Créer un compte client
-          </Link>
-        </p>
-        <p>
-          Vous êtes commerçant ?{" "}
+            Créer un compte
+          </Link>{" "}
+          ou{" "}
           <Link to="/register-merchant" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Ouvrir une boutique
+            ouvrir une boutique
           </Link>
         </p>
-        <p>
-          Vous êtes livreur ?{" "}
-          <Link to="/driver-login" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Connexion livreur
-          </Link>
+        <p className="text-xs">
+          Livreurs et partenaires : connectez-vous ici avec le numéro de téléphone et le mot de passe fournis par
+          Sunu Mall ou votre entreprise.
         </p>
       </div>
     </div>

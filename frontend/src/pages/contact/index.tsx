@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { apiErrorMessage } from "@/lib/api";
 import { sendContactMessage } from "@/api/complaints";
+import { FEATURES } from "@/lib/features";
 
 const CONTACT_CARDS = [
   { icon: Phone, title: "Téléphone", lines: ["+221 76 187 27 73"], href: "tel:+221761872773" },
@@ -173,13 +174,19 @@ export default function ContactPage() {
               <MessageCircle className="h-5 w-5 text-orange-light" />
             </div>
             <div>
-              <p className="font-display text-lg font-bold text-white">Besoin d'une réponse immédiate ?</p>
+              <p className="font-display text-lg font-bold text-white">Besoin d'une réponse rapide ?</p>
               <p className="mt-1 text-sm text-white/60">Nos conseillers vous répondent du lundi au samedi, aux horaires d’ouverture.</p>
             </div>
           </div>
-          <a href="#support-chat" className="btn-orange inline-flex shrink-0 items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold">
-            Ouvrir le chat <ArrowRight className="h-4 w-4" />
-          </a>
+          {FEATURES.supportChat ? (
+            <a href="#support-chat" className="btn-orange inline-flex shrink-0 items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold">
+              Ouvrir le chat <ArrowRight className="h-4 w-4" />
+            </a>
+          ) : (
+            <a href="tel:+221761872773" className="btn-orange inline-flex shrink-0 items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold">
+              Nous appeler <ArrowRight className="h-4 w-4" />
+            </a>
+          )}
         </div>
       </section>
     </div>

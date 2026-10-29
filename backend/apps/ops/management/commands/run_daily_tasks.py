@@ -9,9 +9,11 @@ par exemple), la commande est lancée à chaque démarrage du service avec
 `--if-due` : les traitements passent une fois par jour, au premier démarrage
 de la journée. Là où Celery Beat tourne, elle n'est pas nécessaire.
 
-Les deux traitements sont ceux de CELERY_BEAT_SCHEDULE et sont idempotents :
+Tous les traitements sont idempotents :
     - expiration des abonnements échus et rappels « expire bientôt » ;
-    - libération des fonds vendeurs dont le délai est écoulé.
+    - libération des fonds vendeurs dont le délai est écoulé ;
+    - expiration des commandes non payées ;
+    - factures mensuelles des partenaires de livraison (mois écoulé).
 """
 import logging
 
@@ -22,6 +24,7 @@ from django.utils import timezone
 from apps.commissions.tasks import release_pending_funds_task
 from apps.monetization.tasks import expire_and_remind_subscriptions
 from apps.orders.expiry import expire_unpaid_orders
+from apps.orders.invoicing import generate_partner_invoices
 from apps.ops.models import SystemSetting
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,7 @@ DAILY_TASKS = [
     ("expire_and_remind_subscriptions", expire_and_remind_subscriptions),
     ("release_pending_funds", release_pending_funds_task),
     ("expire_unpaid_orders", expire_unpaid_orders),
+    ("generate_partner_invoices", generate_partner_invoices),
 ]
 
 

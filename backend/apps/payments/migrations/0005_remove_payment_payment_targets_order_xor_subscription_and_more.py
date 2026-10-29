@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="payment",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     models.Q(
                         ("global_order__isnull", True),
                         ("order__isnull", False),

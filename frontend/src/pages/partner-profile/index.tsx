@@ -10,13 +10,121 @@ import { Card } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
-import type { DeliveryPartnerDetail, PartnerStatus } from "@/types";
+import type { DeliveryPartnerDetail, PartnerPayoutMethod, PartnerStatus } from "@/types";
 
 const STATUS_LABEL: Record<PartnerStatus, string> = {
   active: "Active",
   inactive: "En attente d'activation",
   suspended: "Suspendue",
 };
+
+const PAYOUT_METHODS: { id: PartnerPayoutMethod; label: string; accountLabel: string; placeholder: string }[] = [
+  { id: "wave", label: "Wave", accountLabel: "Numéro Wave", placeholder: "77 123 45 67" },
+  { id: "orange_money", label: "Orange Money", accountLabel: "Numéro Orange Money", placeholder: "77 123 45 67" },
+  { id: "bank_transfer", label: "Virement bancaire", accountLabel: "IBAN", placeholder: "SN04 SN01 0015 2000 0000 1234 5678" },
+];
+
+function PayoutCard() {
+  const { data: payout, loading, error, refetch } = useAsync(() => partnerApi.getPartnerPayout(), []);
+  const [method, setMethod] = useState<PartnerPayoutMethod>("wave");
+  const [account, setAccount] = useState("");
+  const [holder, setHolder] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!payout) return;
+    if (payout.payout_method) setMethod(payout.payout_method);
+    setAccount(payout.payout_account);
+    setHolder(payout.payout_holder);
+  }, [payout]);
+
+  async function save() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      await partnerApi.updatePartnerPayout({
+        payout_method: method,
+        payout_account: account,
+        payout_holder: holder,
+        current_password: password,
+      });
+      setPassword("");
+      setMessage({ ok: true, text: "Coordonnées enregistrées. Une confirmation vous a été envoyée par e-mail." });
+      refetch();
+    } catch (err) {
+      setMessage({ ok: false, text: apiErrorMessage(err, "Impossible d'enregistrer les coordonnées.") });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const current = PAYOUT_METHODS.find((m) => m.id === method) ?? PAYOUT_METHODS[0];
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <h2 className="flex items-center gap-2 font-semibold text-ink">
+        <Landmark className="h-4 w-4 text-orange" /> Versement de vos factures
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Sunu Mall verse chaque facture mensuelle sur ce compte. Sans coordonnées, le versement ne peut pas être effectué.
+      </p>
+      {loading ? (
+        <Spinner label="Chargement…" />
+      ) : error ? (
+        <ErrorState onRetry={refetch} />
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Moyen de versement">
+            {PAYOUT_METHODS.map((m) => (
+              <Button
+                key={m.id}
+                type="button"
+                size="sm"
+                variant={method === m.id ? "primary" : "secondary"}
+                role="radio"
+                aria-checked={method === m.id}
+                onClick={() => setMethod(m.id)}
+              >
+                {m.label}
+              </Button>
+            ))}
+          </div>
+          <Input label={current.accountLabel} value={account} onChange={(e) => setAccount(e.target.value)} placeholder={current.placeholder} />
+          <Input label="Titulaire du compte" value={holder} onChange={(e) => setHolder(e.target.value)} placeholder="Nom de l'entreprise ou du gérant" />
+          <Input
+            label="Votre mot de passe"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            hint="Demandé à chaque modification, pour protéger vos versements."
+          />
+          {message && (
+            <p
+              className={
+                message.ok
+                  ? "flex items-center gap-2 rounded-lg border border-success/30 bg-green-50 px-3 py-2 text-sm text-success"
+                  : "rounded-lg border border-danger/30 bg-red-50 px-3 py-2 text-sm text-danger"
+              }
+            >
+              {message.ok && <Check className="h-4 w-4" />} {message.text}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={save} loading={saving} disabled={!account.trim() || !holder.trim() || !password}>
+              Enregistrer les coordonnées
+            </Button>
+            {payout?.payout_updated_at && (
+              <span className="text-xs text-muted-foreground">Dernière modification le {formatDate(payout.payout_updated_at)}</span>
+            )}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
 
 export default function PartnerProfilePage() {
   const { data: partner, loading, refetch } = useAsync(() => partnerApi.getPartnerProfile(), []);
@@ -28,8 +136,6 @@ export default function PartnerProfilePage() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const { data: bank } = useAsync(() => partnerApi.getPartnerBankInfo(), []);
 
   function initForm(p: DeliveryPartnerDetail) {
     setForm({
@@ -155,17 +261,7 @@ export default function PartnerProfilePage() {
         </Button>
       </Card>
 
-      <Card className="flex flex-col gap-2">
-        <h2 className="flex items-center gap-2 font-semibold text-ink">
-          <Landmark className="h-4 w-4 text-orange" /> Moyen de paiement
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Paiement par virement bancaire{partner.contact_email ? ` vers le compte de contact « ${partner.contact_email} »` : ""}. Les factures sont réglées après rapprochement.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {bank ? `${bank.method} · ${bank.provider}` : "Informations bancaires non renseignées."}
-        </p>
-      </Card>
+      <PayoutCard />
 
       <p className="text-xs text-muted-foreground">Entreprise enregistrée le {formatDate(partner.created_at)}</p>
     </div>
