@@ -50,6 +50,10 @@ from apps.kyc.utils import driver_kyc_verified
 logger = logging.getLogger(__name__)
 
 
+# Statuts d'une commande (simple ou multi-boutiques) qui autorisent l'affectation
+# d'un livreur : payée, et pas encore livrée ni annulée.
+ASSIGNABLE_ORDER_STATUSES = frozenset({"paid", "processing", "shipped"})
+
 class AddressViewSet(viewsets.ModelViewSet):
     """Carnet d'adresses de l'utilisateur connecté."""
     serializer_class = AddressSerializer
@@ -732,10 +736,19 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         if is_partner and driver.partner_id != (partner.id if partner else None):
             raise ValidationError("Vous ne pouvez affecter que des livreurs de votre entreprise.")
 
+        # Jamais de livreur sur une commande non payée (il livrerait sans
+        # encaissement) ni sur un retrait en boutique (le client se déplace).
+        target = delivery.order or delivery.global_order
+        if target is None or target.status not in ASSIGNABLE_ORDER_STATUSES:
+            raise ValidationError("Cette commande n'est pas payée : aucun livreur ne peut encore lui être affecté.")
+        if getattr(target, "delivery_type", "standard") == "pickup":
+            raise ValidationError("Retrait en boutique : le client vient chercher sa commande, aucun livreur à affecter.")
+
         store = delivery.main_store()
         if store.latitude is None or store.longitude is None:
             raise ValidationError(
-                "La boutique n'a pas de coordonnées GPS : impossible de vérifier où récupérer le colis."
+                "Votre boutique n'a pas encore de position GPS. Enregistrez-la dans Paramètres "
+                "(« Utiliser ma position actuelle ») pour pouvoir affecter un livreur."
             )
         distance = driver.distance_to_store_km(store)
         radius = settings.DRIVER_ASSIGNMENT_RADIUS_KM

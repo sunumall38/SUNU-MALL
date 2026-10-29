@@ -1,4 +1,4 @@
-Bonjour {{ user.first_name }} !
+{% autoescape off %}Bonjour {{ user.first_name }} !
 
 Vous avez déjà commandé sur SUNU MALL avec cette adresse email.
 
@@ -12,3 +12,4 @@ personne ne peut accéder à votre compte sans ce lien.
 
 Cordialement,
 L'équipe SUNU MALL
+{% endautoescape %}

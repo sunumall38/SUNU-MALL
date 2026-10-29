@@ -80,6 +80,22 @@ class OrderLifecycleTests(MultiStoreTestMixin, TestCase):
         self.assertEqual(order.payment.status, Payment.Status.FAILED)
         self.assertEqual(self._reserved(self.variant_a), 0)
 
+    def test_viewing_the_product_releases_stock_of_abandoned_orders(self, _gate):
+        from django.core.cache import cache
+
+        from apps.orders.expiry import EXPIRY_THROTTLE_KEY
+
+        cache.delete(EXPIRY_THROTTLE_KEY)
+        order = self._single()
+        self._age(order=order)
+        self.client.force_authenticate(None)
+        response = self.client.get(f"/api/catalog/products/{self.variant_a.product_id}/")
+        self.assertEqual(response.status_code, 200)
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CANCELLED)
+        self.assertEqual(self._reserved(self.variant_a), 0)
+        cache.delete(EXPIRY_THROTTLE_KEY)
+
     def test_recent_unpaid_order_is_kept(self, _gate):
         self._single()
         self.assertEqual(expire_unpaid_orders(), 0)

@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPrice } from "@/lib/utils";
 import { DELIVERY_FAILURE_REASONS, DELIVERY_RETURN_REASONS, deliveryStatusLabel } from "@/lib/delivery";
 import type { DeliveryStatus } from "@/types";
 import { isHandoverStatus } from "@/lib/delivery";
@@ -269,7 +269,10 @@ export default function DriverDeliveryPage() {
                 </span>
               </div>
             </div>
-            <p className="text-sm font-bold text-orange">{order.total_amount}</p>
+            <p className="text-sm text-muted-foreground">
+              Montant de la commande :{" "}
+              <strong className="font-bold text-orange">{formatPrice(order.total_amount)}</strong>
+            </p>
           </>
         )}
 

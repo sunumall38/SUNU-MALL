@@ -81,3 +81,29 @@ def expire_unpaid_orders(now=None):
             global_order.save(update_fields=["status"])
             expired += 1
     return expired
+
+
+EXPIRY_THROTTLE_KEY = "orders:expire-unpaid:last-run"
+EXPIRY_THROTTLE_SECONDS = 5 * 60
+
+
+def expire_unpaid_orders_if_due():
+    """Variante bon marché appelée à la consultation d'un produit.
+
+    Sans elle, un produit dont tout le stock est réservé par un panier
+    abandonné restait « en rupture » jusqu'au passage quotidien : plus
+    personne ne pouvant l'ajouter au panier, aucune commande ne déclenchait
+    la libération. Au plus un passage toutes les 5 minutes par processus,
+    et jamais d'erreur remontée à la lecture du catalogue.
+    """
+    import logging
+
+    from django.core.cache import cache
+
+    try:
+        if not cache.add(EXPIRY_THROTTLE_KEY, 1, EXPIRY_THROTTLE_SECONDS):
+            return 0
+        return expire_unpaid_orders()
+    except Exception:  # noqa: BLE001 — la lecture du catalogue ne doit jamais échouer pour ça
+        logging.getLogger(__name__).exception("Expiration des commandes non payées impossible")
+        return 0

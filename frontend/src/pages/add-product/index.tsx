@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { ApiError } from "@/lib/api";
+import { FEATURES } from "@/lib/features";
 import { ProductLimitBanner } from "@/components/merchant/ProductLimitBanner";
 
 const schema = z.object({
@@ -160,6 +161,7 @@ export default function AddProductPage() {
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <p className="text-sm font-semibold text-ink">Description</p>
+              {FEATURES.aiProductDescription && (
               <button
                 type="button"
                 onClick={handleGenerateDescription}
@@ -169,9 +171,12 @@ export default function AddProductPage() {
                 <Sparkles className="h-3.5 w-3.5" />
                 {generatingDescription ? "Génération…" : "Générer avec l'IA"}
               </button>
+              )}
             </div>
             <Textarea {...register("description")} rows={3} />
-            <p className="mt-1.5 text-[11px] text-muted-foreground">Génération propulsée par {iaApi.AI_MODEL_DISPLAY_NAME}</p>
+            {FEATURES.aiProductDescription && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">Génération propulsée par {iaApi.AI_MODEL_DISPLAY_NAME}</p>
+            )}
             {aiError && <p className="mt-1.5 text-xs text-danger">{aiError}</p>}
           </div>
           <Select label="Catégorie" {...register("category")}>

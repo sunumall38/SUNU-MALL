@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronRight, PackageSearch, Truck } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
@@ -8,6 +9,8 @@ import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KycStatusCard } from "@/components/kyc/KycStatusCard";
 import { formatDate } from "@/lib/utils";
+import { ApiError, apiErrorMessage } from "@/lib/api";
+import { getCurrentPosition } from "@/lib/geolocation";
 import { DELIVERY_STATUS_LABEL, DELIVERY_STATUS_VARIANT } from "@/lib/delivery";
 import type { DriverAvailability } from "@/types";
 
@@ -23,11 +26,32 @@ export default function DriverDashboardPage() {
   const { data: driver, refetch: refetchDriver } = useAsync(() => ordersApi.getMyDriverProfile(), []);
   const { data: deliveries, loading } = useAsync(() => ordersApi.listDeliveries(), []);
 
+  const [toggling, setToggling] = useState(false);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  // Passer « Disponible » envoie aussi la position GPS : sans elle, le
+  // livreur reste invisible des boutiques (rayon autour de la boutique).
   async function toggleAvailability() {
     if (!driver) return;
     const next: DriverAvailability = driver.availability_status === "available" ? "offline" : "available";
-    await ordersApi.updateMyDriverProfile({ availability_status: next });
-    refetchDriver();
+    setToggling(true);
+    setToggleError(null);
+    try {
+      if (next === "available") {
+        const pos = await getCurrentPosition();
+        await ordersApi.updateMyDriverPosition(pos.coords.latitude, pos.coords.longitude);
+      }
+      await ordersApi.updateMyDriverProfile({ availability_status: next });
+      refetchDriver();
+    } catch (err) {
+      setToggleError(
+        err instanceof ApiError
+          ? apiErrorMessage(err, "Impossible de changer votre disponibilité.")
+          : "Activez la géolocalisation : votre position est nécessaire pour recevoir des courses près des boutiques.",
+      );
+    } finally {
+      setToggling(false);
+    }
   }
 
   const active = deliveries?.filter((d) => !TERMINAL_STATUSES.has(d.status)) ?? [];
@@ -44,6 +68,7 @@ export default function DriverDashboardPage() {
         {driver && (
           <button
             onClick={toggleAvailability}
+            disabled={toggling}
             className="focus-ring flex items-center gap-2 rounded-lg border border-border bg-white px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-orange/50"
           >
             <span
@@ -53,6 +78,12 @@ export default function DriverDashboardPage() {
           </button>
         )}
       </div>
+
+      {toggleError && (
+        <p role="alert" className="rounded-lg border border-danger/30 bg-red-50 px-3 py-2 text-sm text-danger">
+          {toggleError}
+        </p>
+      )}
 
       {loading ? (
         <Spinner label="Chargement de vos courses…" />

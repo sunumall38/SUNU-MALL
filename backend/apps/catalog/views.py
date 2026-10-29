@@ -128,6 +128,14 @@ class ProductViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated(), IsStoreOwnerOrAdmin()]
         return super().get_permissions()
 
+    def retrieve(self, request, *args, **kwargs):
+        # Fiche produit : rend d'abord le stock des commandes abandonnées
+        # (sinon l'article reste « en rupture » jusqu'au passage quotidien).
+        from apps.orders.expiry import expire_unpaid_orders_if_due
+
+        expire_unpaid_orders_if_due()
+        return super().retrieve(request, *args, **kwargs)
+
     def get_queryset(self):
         user = self.request.user
         if user.is_authenticated and user.is_admin():

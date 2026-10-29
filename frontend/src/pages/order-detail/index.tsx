@@ -3,8 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { CreditCard, MapPin, PackageX, Truck, User, XCircle } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as ordersApi from "@/api/orders";
-import * as paymentsApi from "@/api/payments";
-import { startPayment } from "@/lib/paymentFlow";
 import { apiErrorMessage } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -12,6 +10,13 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatDate, formatPrice } from "@/lib/utils";
+import { DELIVERY_STATUS_LABEL } from "@/lib/delivery";
+import {
+  ASSIGNABLE_ORDER_STATUSES,
+  PAYMENT_STATUS_LABEL,
+  orderStatusLabel,
+  paymentMethodLabel,
+} from "@/lib/orderStatus";
 
 const ORDER_STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "danger"> = {
   delivered: "success",
@@ -50,7 +55,7 @@ export default function OrderDetailPage() {
   );
   const [assigning, setAssigning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [retrying, setRetrying] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   if (!orderId) return <EmptyState icon={PackageX} title="Aucune commande sélectionnée" />;
   if (loading) return <Spinner label="Chargement de la commande…" />;
@@ -59,9 +64,12 @@ export default function OrderDetailPage() {
   async function assign(driverId: string) {
     if (!driverId || !order?.delivery) return;
     setAssigning(true);
+    setAssignError(null);
     try {
       await ordersApi.assignDriver(order.delivery.id, driverId);
       refetch();
+    } catch (err) {
+      setAssignError(apiErrorMessage(err, "Impossible d'affecter ce livreur."));
     } finally {
       setAssigning(false);
     }
@@ -78,30 +86,13 @@ export default function OrderDetailPage() {
     }
   }
 
-  async function handleRetryPayment() {
-    if (!order?.payment) return;
-    setRetrying(true);
-    try {
-      // Vraie passerelle : départ vers Wave / Orange Money. Mode test :
-      // la confirmation est simulée sur place.
-      const started = await startPayment(order.payment.id);
-      if (started.kind === "sandbox") {
-        await paymentsApi.sandboxConfirmPayment(order.payment.id, "success");
-        refetch();
-        setRetrying(false);
-      }
-    } catch (err) {
-      window.alert(apiErrorMessage(err, "Impossible de relancer le paiement."));
-      setRetrying(false);
-    }
-  }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex flex-wrap items-center gap-2 font-display text-2xl font-bold text-gray-900">
           Commande n°{order.id.slice(0, 8)}
-          <Badge variant={ORDER_STATUS_VARIANT[order.status] ?? "default"}>{order.status}</Badge>
+          <Badge variant={ORDER_STATUS_VARIANT[order.status] ?? "default"}>{orderStatusLabel(order.status)}</Badge>
         </h1>
         {order.can_be_cancelled && (
           <Button variant="danger" size="sm" onClick={handleCancel} loading={cancelling}>
@@ -136,16 +127,17 @@ export default function OrderDetailPage() {
             <>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-ink">
-                  Méthode : <strong className="font-semibold">{order.payment.method}</strong>
+                  Méthode : <strong className="font-semibold">{paymentMethodLabel(order.payment.method)}</strong>
                 </p>
-                <Badge variant={PAYMENT_STATUS_VARIANT[order.payment.status] ?? "default"}>{order.payment.status}</Badge>
+                <Badge variant={PAYMENT_STATUS_VARIANT[order.payment.status] ?? "default"}>
+                  {PAYMENT_STATUS_LABEL[order.payment.status] ?? order.payment.status}
+                </Badge>
               </div>
               {order.payment.status === "failed" && (
                 <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-red-50 p-3">
-                  <p className="flex-1 text-xs text-danger">Le paiement a échoué. Le client peut réessayer.</p>
-                  <Button size="sm" onClick={handleRetryPayment} loading={retrying}>
-                    Simuler succès
-                  </Button>
+                  <p className="flex-1 text-xs text-danger">
+                    Le paiement a échoué. Le client peut le relancer depuis le suivi de sa commande.
+                  </p>
                 </div>
               )}
             </>
@@ -185,14 +177,31 @@ export default function OrderDetailPage() {
         {order.delivery ? (
           <>
             <div className="flex items-center gap-2">
-              <Badge variant={DELIVERY_STATUS_VARIANT[order.delivery.status] ?? "default"}>{order.delivery.status}</Badge>
+              <Badge variant={DELIVERY_STATUS_VARIANT[order.delivery.status] ?? "default"}>
+                {order.delivery_type === "pickup"
+                  ? "Retrait en boutique"
+                  : (DELIVERY_STATUS_LABEL[order.delivery.status as keyof typeof DELIVERY_STATUS_LABEL] ?? order.delivery.status)}
+              </Badge>
             </div>
             {order.delivery.driver_detail ? (
               <p className="text-sm text-ink">
                 Livreur : <strong className="font-semibold">{order.delivery.driver_detail.full_name}</strong>{" "}
                 <span className="text-muted-foreground">{order.delivery.driver_detail.phone}</span>
               </p>
+            ) : order.delivery_type === "pickup" ? (
+              <p className="text-sm text-muted-foreground">Le client vient chercher la commande en boutique.</p>
+            ) : !ASSIGNABLE_ORDER_STATUSES.has(order.status) ? (
+              <p className="text-sm text-muted-foreground">
+                {order.status === "pending"
+                  ? "Un livreur pourra être affecté dès que le client aura payé."
+                  : "Aucun livreur à affecter."}
+              </p>
             ) : order.delivery.status === "pending" ? (
+              drivers && drivers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Aucun livreur disponible à proximité pour le moment. Réessayez dans quelques minutes.
+                </p>
+              ) : (
               <select
                 aria-label="Assigner un livreur"
                 disabled={assigning}
@@ -210,8 +219,14 @@ export default function OrderDetailPage() {
                   </option>
                 ))}
               </select>
+              )
             ) : (
               <p className="text-sm text-muted-foreground">Aucun livreur affecté pour l'instant.</p>
+            )}
+            {assignError && (
+              <p role="alert" className="text-sm text-danger">
+                {assignError}
+              </p>
             )}
           </>
         ) : (

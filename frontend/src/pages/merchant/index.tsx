@@ -26,16 +26,26 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SubscriptionStatusCard } from "@/components/merchant/SubscriptionStatusCard";
 import { ProductLimitBanner } from "@/components/merchant/ProductLimitBanner";
 import { formatDate, formatPrice } from "@/lib/utils";
-import type { Driver } from "@/types";
+import { apiErrorMessage } from "@/lib/api";
+import { DELIVERY_STATUS_LABEL } from "@/lib/delivery";
+import {
+  ASSIGNABLE_ORDER_STATUSES,
+  ORDER_STATUS_VARIANT,
+  PAID_ORDER_STATUSES,
+  orderStatusLabel,
+} from "@/lib/orderStatus";
+import type { DeliveryStatus, Driver, OrderStatus } from "@/types";
 
-const STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "danger"> = {
-  delivered: "success",
-  paid: "success",
-  processing: "warning",
-  shipped: "warning",
-  pending: "default",
-  cancelled: "danger",
-};
+type DashboardOrder = { status: string; delivery_type?: string; delivery: { status: string } | null };
+
+/** Livreur affectable : commande payée, livraison à domicile, pas encore affectée. */
+function canAssignDriver(order: DashboardOrder) {
+  return (
+    ASSIGNABLE_ORDER_STATUSES.has(order.status) &&
+    order.delivery_type !== "pickup" &&
+    order.delivery?.status === "pending"
+  );
+}
 
 export default function MerchantDashboardPage() {
   const { data: own, loading: loadingStores, refetch: refetchStores } = useAsync(() => catalogApi.listMyStores(), []);
@@ -44,10 +54,11 @@ export default function MerchantDashboardPage() {
   const [assigningDeliveryId, setAssigningDeliveryId] = useState<string | null>(null);
   const [uploadingLogoId, setUploadingLogoId] = useState<string | null>(null);
   const [logoErrorId, setLogoErrorId] = useState<string | null>(null);
+  const [assignError, setAssignError] = useState<string | null>(null);
 
   const orderList = useMemo(() => orders ?? [], [orders]);
   const pendingStoreIds = useMemo(
-    () => [...new Set(orderList.filter((o) => o.delivery?.status === "pending").map((o) => o.store))],
+    () => [...new Set(orderList.filter(canAssignDriver).map((o) => o.store))],
     [orderList],
   );
   const [driversByStore, setDriversByStore] = useState<Record<string, Driver[]>>({});
@@ -74,16 +85,22 @@ export default function MerchantDashboardPage() {
   if (loadingStores || loadingOrders) return <Spinner label="Chargement du tableau de bord…" />;
   if (!own) return null;
 
-  const revenue = orderList.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
-  const paidOrders = orderList.filter((o) => o.status === "paid" || o.status === "delivered");
+  // Chiffre d'affaires : commandes encaissées seulement (pas celles en
+  // attente de paiement ni annulées).
+  const paidOrders = orderList.filter((o) => PAID_ORDER_STATUSES.has(o.status));
+  const revenue = paidOrders.reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+  const storeWithoutPosition = own.find((s) => s.status === "active" && (s.latitude == null || s.longitude == null));
   const activeStore = own[0];
 
   async function assign(deliveryId: string, driverId: string) {
     if (!driverId) return;
     setAssigningDeliveryId(deliveryId);
+    setAssignError(null);
     try {
       await ordersApi.assignDriver(deliveryId, driverId);
       refetchOrders();
+    } catch (err) {
+      setAssignError(apiErrorMessage(err, "Impossible d'affecter ce livreur."));
     } finally {
       setAssigningDeliveryId(null);
     }
@@ -132,6 +149,24 @@ export default function MerchantDashboardPage() {
           </Button>
         </Link>
       </div>
+
+      {storeWithoutPosition && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange/30 bg-orange/5 px-4 py-3 text-sm text-ink"
+        >
+          <span className="flex items-center gap-2">
+            <TriangleAlert className="h-4 w-4 shrink-0 text-orange-dark" />
+            Enregistrez la position de « {storeWithoutPosition.name} » : sans elle, aucun livreur ne peut être affecté
+            à vos commandes.
+          </span>
+          <Link to="/store-settings">
+            <Button size="sm" variant="secondary">
+              Enregistrer la position
+            </Button>
+          </Link>
+        </div>
+      )}
 
       <SubscriptionStatusCard account={account} />
 
@@ -287,6 +322,11 @@ export default function MerchantDashboardPage() {
           <CardTitle>Dernières commandes</CardTitle>
           <span className="text-xs text-muted-foreground">Suivi des livraisons accessible ici</span>
         </div>
+        {assignError && (
+          <p role="alert" className="mt-3 rounded-lg border border-danger/30 bg-red-50 px-3 py-2 text-sm text-danger">
+            {assignError}
+          </p>
+        )}
         {orderList.length === 0 ? (
           <div className="mt-3">
             <EmptyState icon={ShoppingBag} title="Aucune commande reçue" />
@@ -296,9 +336,11 @@ export default function MerchantDashboardPage() {
             {orderList.slice(0, 5).map((order) => (
               <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm">
                 <span className="text-muted-foreground">{formatDate(order.created_at)}</span>
-                <Badge variant={STATUS_VARIANT[order.status] ?? "default"}>{order.status}</Badge>
+                <Badge variant={ORDER_STATUS_VARIANT[order.status as OrderStatus] ?? "default"}>
+                  {orderStatusLabel(order.status)}
+                </Badge>
                 <span className="font-bold text-ink">{formatPrice(order.total_amount)}</span>
-                {order.delivery?.status === "pending" ? (
+                {canAssignDriver(order) && order.delivery ? (
                   <select
                     aria-label="Assigner un livreur"
                     disabled={assigningDeliveryId === order.delivery.id}
@@ -317,7 +359,14 @@ export default function MerchantDashboardPage() {
                     ))}
                   </select>
                 ) : (
-                  order.delivery && <Badge variant="default">Livraison : {order.delivery.status}</Badge>
+                  order.delivery &&
+                  PAID_ORDER_STATUSES.has(order.status) && (
+                    <Badge variant="default">
+                      {order.delivery_type === "pickup"
+                        ? "Retrait en boutique"
+                        : `Livraison : ${DELIVERY_STATUS_LABEL[order.delivery.status as DeliveryStatus] ?? order.delivery.status}`}
+                    </Badge>
+                  )
                 )}
                 <Link
                   to={`/order-detail?order=${order.id}`}

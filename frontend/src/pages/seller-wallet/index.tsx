@@ -110,8 +110,9 @@ export default function SellerWalletPage() {
             <p className="font-display text-3xl font-bold">{parseFloat(subscription.rate)} %</p>
           </div>
           <p className="max-w-sm text-sm text-white/80">
-            Pour chaque vente, Sunu Mall prélève sa commission sur le montant brut. Vous recevez
-            directement votre montant net : vente brute − commission.
+            Pour chaque vente, Sunu Mall prélève sa commission sur le montant des produits. Vous recevez
+            votre montant net (produits − commission), auquel s'ajoutent les frais de livraison payés
+            par le client.
           </p>
           <Link to="/merchant-payouts">
             <Button variant="secondary">Retirer des fonds</Button>
@@ -158,6 +159,16 @@ export default function SellerWalletPage() {
                       <p className="font-medium text-success">{formatPrice(sale.seller_amount)}</p>
                     </span>
                   </div>
+                  {(() => {
+                    const deliveryFee =
+                      parseFloat(sale.seller_amount) -
+                      (parseFloat(sale.gross_amount) - parseFloat(sale.commission_amount));
+                    return deliveryFee >= 1 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Dont {formatPrice(deliveryFee)} de frais de livraison payés par le client.
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
               ))}
             </div>

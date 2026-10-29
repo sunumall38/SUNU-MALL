@@ -12,6 +12,7 @@ import { apiErrorMessage, ApiError } from "@/lib/api";
 import type { CheckoutPayload, GlobalOrder, Order } from "@/types";
 import { startPayment, usePaymentMethods } from "@/lib/paymentFlow";
 import { CardPaymentForm } from "@/components/checkout/CardPaymentForm";
+import { paymentMethodLabel } from "@/lib/orderStatus";
 import { isCardComplete, type CardDetails } from "@/components/checkout/cardValidation";
 
 export default function CheckoutPaymentPage() {
@@ -179,14 +180,17 @@ export default function CheckoutPaymentPage() {
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <FlaskConical className="h-4 w-4 shrink-0" />
             <div>
-              <p className="font-semibold">Mode test (sandbox)</p>
-              <p>{sandboxMessage ?? "Aucune vraie transaction Wave/Orange Money/carte n'est envoyée."}</p>
+              <p className="font-semibold">Phase de test : aucun argent n'est débité</p>
+              <p>
+                Sunu Mall est en phase pilote. Le paiement Wave / Orange Money / carte est simulé :
+                confirmez simplement votre commande ci-dessous.
+              </p>
             </div>
           </div>
 
           <p className="text-sm text-muted-foreground">
             Commande n°{createdOrder.id.slice(0, 8)} — <strong>{formatPrice(createdOrder.total_amount)}</strong> via{" "}
-            {createdOrder.payment?.method}
+            {paymentMethodLabel(createdOrder.payment?.method)}
           </p>
 
           {paymentFailed ? (
@@ -194,9 +198,9 @@ export default function CheckoutPaymentPage() {
               <span className="grid h-14 w-14 place-items-center rounded-full bg-red-100">
                 <XCircle className="h-8 w-8 text-danger" />
               </span>
-              <p className="text-sm font-medium text-danger">Paiement simulé en échec.</p>
+              <p className="text-sm font-medium text-danger">Le paiement n'a pas abouti (simulation d'échec).</p>
               <Button onClick={() => handleSandboxOutcome("success")} loading={confirming === "success"}>
-                Réessayer (simuler succès)
+                Réessayer le paiement
               </Button>
             </div>
           ) : (
@@ -207,14 +211,14 @@ export default function CheckoutPaymentPage() {
                 className="flex-1"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                Simuler paiement réussi
+                Confirmer le paiement
               </Button>
               <Button
                 variant="secondary"
                 onClick={() => handleSandboxOutcome("failed")}
                 loading={confirming === "failed"}
               >
-                Simuler échec
+                Tester un échec
               </Button>
             </div>
           )}
