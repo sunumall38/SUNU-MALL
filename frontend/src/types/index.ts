@@ -805,6 +805,8 @@ export interface DeliveryPartner {
   status: PartnerStatus;
   /** Score automatique 0-100 (calculé côté serveur, en lecture seule). */
   score: number;
+  /** Email du compte « partenaire » lié ; null tant qu'aucun compte n'est créé. */
+  account_email: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
+import { Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff, UserPlus } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as adminPartnersApi from "@/api/admin-partners";
 import { apiErrorMessage } from "@/lib/api";
@@ -31,6 +31,7 @@ export default function AdminPartnersPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rawApiKey, setRawApiKey] = useState<{ id: string; key: string } | null>(null);
+  const [newAccount, setNewAccount] = useState<{ email: string; password: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -96,10 +97,24 @@ export default function AdminPartnersPage() {
     }
   }
 
-  async function copyKey() {
-    if (!rawApiKey) return;
+  async function createAccount(partner: DeliveryPartner) {
+    setRotatingId(partner.id);
+    setActionError(null);
+    setNewAccount(null);
     try {
-      await navigator.clipboard.writeText(rawApiKey.key);
+      const result = await adminPartnersApi.createAdminPartnerAccount(partner.id);
+      setNewAccount({ email: result.account_email ?? partner.contact_email, password: result.temporary_password });
+      refetch();
+    } catch (err) {
+      setActionError(apiErrorMessage(err, "Impossible de créer le compte partenaire."));
+    } finally {
+      setRotatingId(null);
+    }
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -131,11 +146,41 @@ export default function AdminPartnersPage() {
               <code className="flex-1 break-all rounded-lg border border-dashed border-emerald-300 bg-white px-3 py-2 font-mono text-xs text-gray-900">
                 {rawApiKey.key}
               </code>
-              <Button size="sm" variant="secondary" onClick={copyKey} className="shrink-0">
+              <Button size="sm" variant="secondary" onClick={() => copyText(rawApiKey.key)} className="shrink-0">
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copié" : "Copier"}
               </Button>
             </div>
+          </Card>
+        )}
+
+        {newAccount && (
+          <Card className="flex flex-col gap-3 border-emerald-500/30 bg-emerald-50">
+            <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+              <UserPlus className="h-4 w-4" />
+              {newAccount.password ? "Compte partenaire créé" : "Compte partenaire existant lié"}
+            </p>
+            {newAccount.password ? (
+              <>
+                <p className="text-xs text-emerald-800">
+                  Transmettez ces identifiants au partenaire (le mot de passe n'est affiché qu'une seule fois) ; il devra le
+                  changer à sa première connexion.
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 break-all rounded-lg border border-dashed border-emerald-300 bg-white px-3 py-2 font-mono text-xs text-gray-900">
+                    {newAccount.email} · {newAccount.password}
+                  </code>
+                  <Button size="sm" variant="secondary" onClick={() => copyText(newAccount.password ?? "")} className="shrink-0">
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copied ? "Copié" : "Copier"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-emerald-800">
+                {newAccount.email} se connecte avec son mot de passe habituel et accède désormais à l'Espace Partenaire.
+              </p>
+            )}
           </Card>
         )}
 
@@ -158,14 +203,27 @@ export default function AdminPartnersPage() {
                   <Badge variant={STATUS_VARIANT[partner.status]}>{STATUS_LABEL[partner.status]}</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Score qualité : <strong className="text-ink">{partner.score}/100</strong>
+                  Score qualité : <strong className="text-ink">{partner.score}/100</strong> · Compte :{" "}
+                  {partner.account_email ? (
+                    <strong className="text-ink">{partner.account_email}</strong>
+                  ) : (
+                    <span className="font-semibold text-orange-dark">aucun — à créer avant l'activation</span>
+                  )}
                 </p>
                 <div className="flex flex-wrap gap-2">
+                  {!partner.account_email && (
+                    <Button size="sm" onClick={() => createAccount(partner)} loading={rotatingId === partner.id}>
+                      <UserPlus className="h-4 w-4" />
+                      Créer le compte
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant={partner.status === "active" ? "danger" : "secondary"}
                     onClick={() => toggleStatus(partner)}
                     loading={rotatingId === partner.id}
+                    disabled={partner.status !== "active" && !partner.account_email}
+                    title={partner.status !== "active" && !partner.account_email ? "Créez d'abord le compte partenaire" : undefined}
                   >
                     {partner.status === "active" ? <ShieldOff className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}
                     {partner.status === "active" ? "Suspendre" : partner.status === "suspended" ? "Réactiver" : "Activer"}
@@ -184,8 +242,8 @@ export default function AdminPartnersPage() {
       <Card className="h-fit">
         <h2 className="mb-1 font-semibold text-ink">Créer une entreprise partenaire</h2>
         <p className="mb-4 text-xs text-muted-foreground">
-          L'entreprise est créée inactive : liez-la ensuite à un compte utilisateur rôle « partenaire », puis activez-la
-          et configurez ses zones de livraison.
+          L'entreprise est créée inactive. Ensuite : « Créer le compte » (connexion avec l'email de contact ; le mot de
+          passe provisoire s'affiche une seule fois, à transmettre au partenaire), puis activez-la et configurez ses zones de livraison.
         </p>
 
         <form onSubmit={handleCreate} className="flex flex-col gap-4">

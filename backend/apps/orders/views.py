@@ -1382,7 +1382,10 @@ class PartnerViewSet(viewsets.ModelViewSet):
     """Gestion administrative des entreprises partenaires (admin uniquement).
 
     - Création, lecture, mise à jour, suspension des partenaires.
-    - `activate` / `suspend` : bascule du statut opérationnel.
+    - `activate` / `suspend` : bascule du statut opérationnel (activation
+      impossible sans compte lié : l'entreprise recevrait des courses
+      automatiquement sans personne pour les traiter).
+    - `create-account` : crée (ou lie) le compte utilisateur « partenaire ».
     - `rotate-api-key` : régénère la clé d'API d'intégration du partenaire.
     """
 
@@ -1402,6 +1405,8 @@ class PartnerViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="activate")
     def activate(self, request, pk=None):
         partner = self.get_object()
+        if partner.user_id is None:
+            raise ValidationError("Créez d'abord le compte partenaire avant d'activer l'entreprise.")
         partner.status = DeliveryPartner.Status.ACTIVE
         partner.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
@@ -1412,6 +1417,63 @@ class PartnerViewSet(viewsets.ModelViewSet):
         partner.status = DeliveryPartner.Status.SUSPENDED
         partner.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
+
+    @action(detail=True, methods=["post"], url_path="create-account")
+    def create_account(self, request, pk=None):
+        """Crée le compte utilisateur « partenaire » à partir des coordonnées
+        de contact de l'entreprise et le lie à celle-ci.
+
+        Si un compte existe déjà avec cet email et porte le rôle partenaire
+        sans être lié à une autre entreprise, il est simplement lié. Sinon, un
+        nouveau compte est créé ; le mot de passe provisoire est renvoyé une
+        seule fois et devra être changé à la première connexion.
+        """
+        User = get_user_model()
+        partner = self.get_object()
+        if partner.user_id is not None:
+            raise ValidationError("Un compte est déjà lié à cette entreprise.")
+        email = (partner.contact_email or "").strip().lower()
+        if not email:
+            raise ValidationError({"contact_email": "Renseignez l'email de contact de l'entreprise."})
+
+        existing = User.objects.filter(email__iexact=email).first()
+        if existing is not None:
+            if not existing.has_role(Role.RoleName.PARTNER):
+                raise ValidationError("Un compte non partenaire existe déjà avec cet email.")
+            if DeliveryPartner.objects.filter(user=existing).exists():
+                raise ValidationError("Ce compte est déjà lié à une autre entreprise partenaire.")
+            partner.user = existing
+            partner.save(update_fields=["user", "updated_at"])
+            data = DeliveryPartnerDetailSerializer(partner).data
+            data["temporary_password"] = None
+            return Response(data)
+
+        try:
+            phone = normalize_senegal_phone(partner.contact_phone) if partner.contact_phone else ""
+        except DjangoValidationError as exc:
+            raise ValidationError({"contact_phone": exc.messages})
+        if phone and User.objects.filter(phone=phone).exists():
+            raise ValidationError({"contact_phone": "Ce numéro de téléphone est déjà utilisé."})
+
+        first_name, _, last_name = (partner.contact_name or partner.name).strip().partition(" ")
+        temporary_password = get_random_string(10)
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=email,
+                email=email,
+                password=temporary_password,
+                first_name=first_name,
+                last_name=last_name,
+                phone=phone,
+                is_verified=True,
+                must_change_password=True,
+            )
+            UserRole.objects.create(user=user, role=Role.objects.get(name=Role.RoleName.PARTNER))
+            partner.user = user
+            partner.save(update_fields=["user", "updated_at"])
+        data = DeliveryPartnerDetailSerializer(partner).data
+        data["temporary_password"] = temporary_password
+        return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="rotate-api-key")
     def rotate_api_key(self, request, pk=None):

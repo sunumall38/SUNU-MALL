@@ -34,6 +34,15 @@ export function suspendAdminPartner(id: string) {
   return apiPost<DeliveryPartnerDetail>(`/orders/partners/${id}/suspend/`);
 }
 
+/**
+ * Crée le compte « partenaire » à partir de l'email de contact et le lie à
+ * l'entreprise. `temporary_password` n'est renvoyé qu'une fois (null si un
+ * compte partenaire existant a simplement été lié).
+ */
+export function createAdminPartnerAccount(id: string) {
+  return apiPost<DeliveryPartnerDetail & { temporary_password: string | null }>(`/orders/partners/${id}/create-account/`);
+}
+
 /** Régénère la clé d'API — le clair n'est renvoyé qu'une seule fois. */
 export function rotateAdminPartnerApiKey(id: string) {
   return apiPost<{ api_key: string; api_key_last4: string }>(`/orders/partners/${id}/rotate-api-key/`);

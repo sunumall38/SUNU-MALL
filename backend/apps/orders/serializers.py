@@ -167,11 +167,15 @@ class DeliveryPickupSerializer(serializers.ModelSerializer):
 
 
 class DeliveryPartnerSerializer(serializers.ModelSerializer):
+    # Email du compte utilisateur qui pilote l'Espace Partenaire (None tant
+    # que l'admin n'a pas créé ou lié de compte).
+    account_email = serializers.EmailField(source="user.email", read_only=True, default=None)
+
     class Meta:
         model = DeliveryPartner
         fields = [
             "id", "name", "contact_name", "contact_email", "contact_phone",
-            "address", "city", "status", "score",
+            "address", "city", "status", "score", "account_email",
             "created_at", "updated_at",
         ]
         read_only_fields = ["id", "score", "created_at", "updated_at"]
@@ -199,7 +203,7 @@ class DeliveryPartnerDetailSerializer(DeliveryPartnerSerializer):
     class Meta(DeliveryPartnerSerializer.Meta):
         fields = [
             "id", "name", "contact_name", "contact_email", "contact_phone",
-            "address", "city", "status", "score",
+            "address", "city", "status", "score", "account_email",
             "drivers_count", "deliveries_count", "delivered_count",
             "success_rate", "return_rate", "active_zones",
             "created_at", "updated_at",

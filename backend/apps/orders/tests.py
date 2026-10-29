@@ -1042,6 +1042,79 @@ class PartnerSpaceApiTests(TestCase):
         self.partner.refresh_from_db()
         self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
 
+    def _new_company(self, **kwargs):
+        defaults = {
+            "name": "NewCo", "contact_name": "Fatou Ndiaye Sarr",
+            "contact_email": "Contact@NewCo.sn", "contact_phone": "77 000 00 09",
+        }
+        defaults.update(kwargs)
+        return DeliveryPartner.objects.create(**defaults)
+
+    def test_admin_creates_partner_account(self):
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertTrue(response.data["temporary_password"])
+        self.assertEqual(response.data["account_email"], "contact@newco.sn")
+        company.refresh_from_db()
+        user = company.user
+        self.assertTrue(user.is_partner())
+        self.assertTrue(user.must_change_password)
+        self.assertEqual((user.first_name, user.last_name), ("Fatou", "Ndiaye Sarr"))
+        self.assertTrue(user.check_password(response.data["temporary_password"]))
+        # Le nouveau compte accède bien à l'Espace Partenaire de son entreprise.
+        self._as(user)
+        profile = self.client.get("/api/orders/partner/profile/")
+        self.assertEqual(profile.status_code, status.HTTP_200_OK)
+        self.assertEqual(profile.data["name"], "NewCo")
+
+    def test_create_account_links_existing_partner_user(self):
+        existing = User.objects.create_user(username="contact@newco.sn", email="contact@newco.sn", password="x")
+        UserRole.objects.create(user=existing, role=Role.objects.get(name=Role.RoleName.PARTNER))
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertIsNone(response.data["temporary_password"])
+        company.refresh_from_db()
+        self.assertEqual(company.user_id, existing.id)
+
+    def test_create_account_refuses_unsafe_cases(self):
+        self._as(self.admin)
+        # Déjà lié.
+        linked = self.client.post(f"/api/orders/partners/{self.partner.id}/create-account/", {}, format="json")
+        self.assertEqual(linked.status_code, status.HTTP_400_BAD_REQUEST)
+        # Email d'un compte client : jamais promu partenaire en silence.
+        client_company = self._new_company(name="C", contact_email="c@example.com", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{client_company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(self.customer.is_partner())
+        # Compte partenaire déjà rattaché à une autre entreprise.
+        other_company = self._new_company(name="D", contact_email="p@example.com", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{other_company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Sans email de contact.
+        no_email = self._new_company(name="E", contact_email="", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{no_email.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_only_admin_creates_partner_account(self):
+        company = self._new_company()
+        self._as(self.partner_user)
+        response = self.client.post(f"/api/orders/partners/{company.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        company.refresh_from_db()
+        self.assertIsNone(company.user_id)
+
+    def test_partner_without_account_cannot_be_activated(self):
+        company = self._new_company()
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{company.id}/activate/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        company.refresh_from_db()
+        self.assertEqual(company.status, DeliveryPartner.Status.INACTIVE)
+
 
 class TrackOrderGuestTests(TestCase):
     """Endpoint /api/orders/track/ — suivi de commande invité (sans connexion)."""
