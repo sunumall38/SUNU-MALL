@@ -12,6 +12,7 @@ from django.utils.crypto import get_random_string
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, NotFound, PermissionDenied, ValidationError
+from rest_framework.negotiation import BaseContentNegotiation
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -1115,6 +1116,24 @@ class _SlotReleasingStream:
                 release_stream_slot()
 
 
+class _AnyAcceptNegotiation(BaseContentNegotiation):
+    """Négociation qui ignore l'en-tête `Accept` du client.
+
+    Un `<EventSource>` envoie `Accept: text/event-stream`, qu'aucun renderer
+    DRF ne produit : la négociation par défaut répondait 406 avant même
+    d'atteindre la vue, et le suivi en direct ne s'ouvrait jamais dans un
+    navigateur. Le flux est une `StreamingHttpResponse` (hors renderers) ;
+    les réponses DRF de cette vue (204, erreurs d'authentification) restent
+    en JSON.
+    """
+
+    def select_parser(self, request, parsers):
+        return parsers[0] if parsers else None
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
+
+
 class DeliveryEventStreamView(viewsets.ViewSet):
     """
     Flux Server-Sent Events d'une livraison (SSE, HTTP long-message).
@@ -1137,6 +1156,7 @@ class DeliveryEventStreamView(viewsets.ViewSet):
       polling, ce qui garde des fils libres pour le reste de l'API.
     """
     permission_classes = [permissions.AllowAny]  # auth gérée manuellement ci-dessous
+    content_negotiation_class = _AnyAcceptNegotiation
 
     def _authenticate(self, request):
         if request.user.is_authenticated:
