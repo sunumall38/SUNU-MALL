@@ -20,7 +20,7 @@ export default function MentionsLegalesPage() {
                 ordered
                 items={[
                   <>
-                    Siège social : Sacré-Cœur 3, Villa 123, Dakar, Sénégal.
+                    Siège social : Liberté 6 Extension, Villa n° 144, VDN, Dakar, Sénégal.
                   </>,
                   <>
                     Adresse email : <span className="font-medium text-orange">sunumall38@gmail.com</span>

@@ -112,8 +112,8 @@ export default function PolitiqueConfidentialitePage() {
               />
               <p>
                 Pour exercer ces droits, écrivez-nous à{" "}
-                <span className="font-medium text-orange">sunumall38@gmail.com</span> ou par courrier (NEJ digital, Sacré-Cœur 3,
-                Villa 123, Dakar). Nous répondons sous 30 jours.
+                <span className="font-medium text-orange">sunumall38@gmail.com</span> ou par courrier (NEJ digital, Liberté 6 Extension,
+                Villa n° 144, VDN, Dakar). Nous répondons sous 30 jours.
               </p>
             </>
           ),

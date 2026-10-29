@@ -9,7 +9,7 @@ import { sendContactMessage } from "@/api/complaints";
 const CONTACT_CARDS = [
   { icon: Phone, title: "Téléphone", lines: ["+221 76 187 27 73"], href: "tel:+221761872773" },
   { icon: Mail, title: "Email", lines: ["sunumall38@gmail.com"], href: "mailto:sunumall38@gmail.com" },
-  { icon: MapPin, title: "Adresse", lines: ["Sacré-Cœur 3, Villa 123", "Dakar, Sénégal"] },
+  { icon: MapPin, title: "Adresse", lines: ["Liberté 6 Extension, Villa n° 144, VDN", "Dakar, Sénégal"] },
   { icon: Clock, title: "Horaires", lines: ["Lun – Sam : 8h à 20h", "Dimanche : 9h à 13h"] },
 ];
 
