@@ -260,6 +260,22 @@ class PartnerPayoutDetailsTests(TestCase):
             self.client.get("/api/orders/partner-invoices/?status=pending").status_code, status.HTTP_403_FORBIDDEN,
         )
 
+    def test_suspended_partner_is_read_only(self):
+        self.partner.status = DeliveryPartner.Status.SUSPENDED
+        self.partner.save()
+        self.assertEqual(self.client.get("/api/orders/partner/banks/").status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/orders/partner/invoices/").status_code, status.HTTP_200_OK)
+        for method, url, data in (
+            ("patch", "/api/orders/partner/banks/",
+             {"payout_method": "wave", "payout_account": "771234567", "payout_holder": "X", "current_password": "x"}),
+            ("patch", "/api/orders/partner/profile/", {"contact_name": "Autre"}),
+            ("post", "/api/orders/partner/api-key/", {}),
+        ):
+            response = getattr(self.client, method)(url, data, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, url)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.payout_account, "")
+
     def test_admin_sees_payout_details_on_invoices(self):
         self.partner.payout_method = DeliveryPartner.PayoutMethod.ORANGE_MONEY
         self.partner.payout_account = "+221781234567"
