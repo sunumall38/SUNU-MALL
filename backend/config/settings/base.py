@@ -278,8 +278,10 @@ DRIVER_ASSIGNMENT_RADIUS_KM = config("DRIVER_ASSIGNMENT_RADIUS_KM", default=5, c
 # DRF
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
+        # JWT et session, avec blocage des comptes au mot de passe provisoire
+        # non changé (voir apps/auth/authentication.py).
+        "apps.auth.authentication.PasswordChangeEnforcingJWTAuthentication",
+        "apps.auth.authentication.PasswordChangeEnforcingSessionAuthentication",
     ],
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,

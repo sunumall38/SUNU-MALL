@@ -1172,10 +1172,13 @@ class DeliveryEventStreamView(viewsets.ViewSet):
             from rest_framework_simplejwt.tokens import AccessToken
             try:
                 payload = AccessToken(access)
-                request.user = User.objects.get(pk=payload["user_id"])
-                return request.user
+                user = User.objects.get(pk=payload["user_id"])
             except (TokenError, User.DoesNotExist, KeyError):
                 raise AuthenticationFailed("Le jeton du flux est invalide ou expiré.")
+            from apps.auth.authentication import enforce_password_change
+            enforce_password_change(request, user)
+            request.user = user
+            return request.user
         raise AuthenticationFailed("Authentification requise pour suivre cette livraison.")
 
     def _delivery_for(self, user, delivery_id):
