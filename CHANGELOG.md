@@ -7,6 +7,12 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 ## [Non publié]
 
 ### Ajouté
+- Paiements réels Wave et Orange Money via **NabooPay** (un seul compte
+  marchand) : redirection vers la page de paiement NabooPay, confirmation
+  par webhook signé (`/api/payments/webhook/naboopay/`, HMAC-SHA256),
+  vérification au retour du client si le webhook tarde, remboursement
+  depuis l'administration. Activé par `NABOOPAY_API_KEY` +
+  `NABOOPAY_WEBHOOK_SECRET` (+ `PAYMENT_SANDBOX=False`).
 - Partenaires de livraison : compte créé et lié depuis l'administration,
   factures mensuelles automatiques (tâches quotidiennes), coordonnées de
   versement (Wave, Orange Money, IBAN), liste des livraisons paginée.

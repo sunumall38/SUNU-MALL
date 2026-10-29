@@ -214,6 +214,7 @@ SUBSCRIPTION_REMINDER_DAYS = [int(d) for d in config(
 PAYMENT_PROVIDERS = {
     "wave": config("WAVE_WEBHOOK_SECRET", default=""),
     "orange_money": config("ORANGE_MONEY_WEBHOOK_SECRET", default=""),
+    "naboopay": config("NABOOPAY_WEBHOOK_SECRET", default=""),
 }
 
 # --- Commandes non payées ---
@@ -458,6 +459,18 @@ ORANGE_MONEY_MERCHANT_KEY = config("ORANGE_MONEY_MERCHANT_KEY", default="")
 ORANGE_MONEY_API_BASE_URL = config("ORANGE_MONEY_API_BASE_URL", default="https://api.orange.com")
 ORANGE_MONEY_COUNTRY_PATH = config("ORANGE_MONEY_COUNTRY_PATH", default="sn")
 ORANGE_MONEY_CURRENCY = config("ORANGE_MONEY_CURRENCY", default="XOF")
+
+# NabooPay (docs.naboopay.com) : Wave et Orange Money via un seul compte
+# marchand. Dès que NABOOPAY_API_KEY est renseignée (clé de portée
+# « checkout »), Wave et Orange Money passent par NabooPay, avant les
+# intégrations directes ci-dessus. Le webhook (Paramètres → Intégration du
+# tableau de bord NabooPay) pointe vers /api/payments/webhook/naboopay/ ; son
+# secret va dans NABOOPAY_WEBHOOK_SECRET. NABOOPAY_FEES_CUSTOMER_SIDE=True
+# ajoute les frais NabooPay au montant payé par le client (par défaut ils
+# sont déduits du versement au marchand).
+NABOOPAY_API_KEY = config("NABOOPAY_API_KEY", default="")
+NABOOPAY_API_BASE_URL = config("NABOOPAY_API_BASE_URL", default="https://api.naboopay.com")
+NABOOPAY_FEES_CUSTOMER_SIDE = config("NABOOPAY_FEES_CUSTOMER_SIDE", default=False, cast=bool)
 
 # URL du frontend utilisée pour construire les liens dans les emails et les
 # URL de retour des passerelles (success_url/error_url). BACKEND_URL est

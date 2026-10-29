@@ -94,6 +94,13 @@ services:
         sync: false
       - key: ADMIN_BOOTSTRAP_PASSWORD
         sync: false
+      # Paiements réels Wave / Orange Money via NabooPay (voir
+      # docs/deploiement-render-cloudflare.md, section 6). À renseigner en
+      # même temps que PAYMENT_SANDBOX=False.
+      - key: NABOOPAY_API_KEY
+        sync: false
+      - key: NABOOPAY_WEBHOOK_SECRET
+        sync: false
       # Codes de vérification par SMS : « twilio » une fois le compte Twilio
       # prêt (variables TWILIO_* à ajouter dans le tableau de bord), sinon
       # « local » (vérification par email uniquement).

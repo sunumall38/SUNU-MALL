@@ -13,6 +13,7 @@ from .serializers import PaymentSerializer, RefundSerializer
 from .gateways import (
     FAILED, SUCCESS, PaymentGatewayError, available_methods, get_gateway,
     verify_orange_notification, verify_wave_signature, wave_session_outcome,
+    NabooPayGateway, naboopay_transaction_outcome, record_naboopay_paid_order, verify_naboopay_signature,
 )
 from apps.monetization.models import Notification
 from apps.orders.models import Order
@@ -354,7 +355,11 @@ class PaymentWebhookView(APIView):
       authentification possible est la correspondance du ``notif_token`` avec
       celui reçu à la création du paiement (stocké dans Payment.metadata).
 
-    En mode sandbox (``PAYMENT_SANDBOX`` actif), les deux acceptent aussi le
+    * ``provider="naboopay"`` : NabooPay envoie l'événement ``payment_status``
+      (``order_id``, ``transaction_status``, ``amount``…), signé HMAC-SHA256
+      du corps brut (entête ``X-Signature``, secret ``NABOOPAY_WEBHOOK_SECRET``).
+
+    En mode sandbox (``PAYMENT_SANDBOX`` actif), tous acceptent aussi le
     format générique ``{"reference", "status"}`` utilisé par SandboxGateway
     pour tester le cycle de vie complet.
 
@@ -404,6 +409,33 @@ class PaymentWebhookView(APIView):
             # Signature valide mais montant/devise différents : jamais de
             # validation d'un paiement pour un autre montant.
             return payment, "rejected"
+        return payment, outcome
+
+    def _handle_naboopay(self, payload):
+        """Notification NabooPay, signature déjà vérifiée. Retourne (payment, outcome)."""
+        if not isinstance(payload, dict):
+            return None, None
+        order_id = str(payload.get("order_id") or "").strip()
+        if not order_id:
+            return None, None
+        payment = Payment.objects.filter(provider_ref=order_id).first()
+        if payment is None:
+            # Transaction d'une tentative précédente du même paiement (le
+            # client a relancé le paiement puis réglé dans l'ancien onglet).
+            payment = Payment.objects.filter(
+                metadata__naboopay_attempts__contains=[{"order_id": order_id}]
+            ).first()
+        if payment is None:
+            return None, None
+        try:
+            outcome = naboopay_transaction_outcome(payload, payment)
+        except PaymentGatewayError:
+            return payment, "rejected"
+        if outcome == FAILED and order_id != payment.provider_ref:
+            # Une ancienne tentative annulée n'invalide pas la tentative en cours.
+            return payment, None
+        if outcome == SUCCESS:
+            record_naboopay_paid_order(payment, order_id)
         return payment, outcome
 
     def _handle_orange(self, payload):
@@ -463,6 +495,10 @@ class PaymentWebhookView(APIView):
                 signature_header = request.headers.get("Wave-Signature") or request.headers.get("X-Wave-Signature")
                 if not secret or not signature_header or not verify_wave_signature(secret, signature_header, raw_body):
                     return self._reject(request, "signature_wave_invalide")
+            elif provider == "naboopay":
+                secret = settings.PAYMENT_PROVIDERS.get("naboopay")
+                if not verify_naboopay_signature(secret, request.headers.get("X-Signature"), raw_body):
+                    return self._reject(request, "signature_naboopay_invalide")
             elif provider not in ("wave", "orange_money"):
                 return self._reject(request, "provider_not_configured", code=status.HTTP_503_SERVICE_UNAVAILABLE)
             # orange_money : l'authentification se fait paiement par paiement
@@ -479,6 +515,8 @@ class PaymentWebhookView(APIView):
                 payment, outcome = self._handle_wave(payload)
             elif provider == "orange_money":
                 payment, outcome = self._handle_orange(payload)
+            elif provider == "naboopay":
+                payment, outcome = self._handle_naboopay(payload)
             else:
                 payment, outcome = None, None
             if payment is None and outcome == "ignored":
@@ -493,9 +531,10 @@ class PaymentWebhookView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             if outcome == "rejected":
-                return self._reject(
-                    request, "montant_wave_incoherent" if provider == "wave" else "notif_token_invalide",
-                )
+                return self._reject(request, {
+                    "wave": "montant_wave_incoherent",
+                    "naboopay": "montant_naboopay_incoherent",
+                }.get(provider, "notif_token_invalide"))
             if outcome is None:
                 return Response({"received": True, "status": "ignored"})
             already = payment.status
@@ -584,25 +623,26 @@ class RefundViewSet(viewsets.ReadOnlyModelViewSet):
         if refund.status == Refund.Status.COMPLETED:
             return Response({"error": "Ce remboursement a déjà été traité."}, status=status.HTTP_400_BAD_REQUEST)
         payment = refund.payment
-        # Wave rembourse par API (la totalité de la session) ; Orange Money
-        # Web Payment n'a pas d'API de remboursement : l'administrateur
-        # renvoie l'argent lui-même avant de valider ici.
-        # L'API Wave ne rembourse qu'une session entière : un remboursement
-        # partiel (une boutique d'une commande multi-boutiques) se fait à la
-        # main depuis l'espace Wave Business, puis se valide ici.
+        # Wave (direct) et NabooPay remboursent par API, mais seulement la
+        # totalité du paiement ; Orange Money Web Payment direct n'a pas
+        # d'API de remboursement (refund() renvoie False). Un remboursement
+        # partiel (une boutique d'une commande multi-boutiques), ou sans API,
+        # se fait à la main depuis l'espace marchand, puis se valide ici.
         if (
-            not settings.PAYMENT_SANDBOX and payment.method == "wave" and payment.provider_ref
-            and not refund.is_partial()
+            not settings.PAYMENT_SANDBOX and payment.method in ("wave", "orange_money")
+            and payment.provider_ref and not refund.is_partial()
         ):
+            gateway = get_gateway(payment.method)
+            provider_label = "NabooPay" if isinstance(gateway, NabooPayGateway) else "Wave"
             try:
-                get_gateway("wave").refund(payment)
+                gateway.refund(payment)
             except PaymentGatewayError as exc:
                 log_security_event(
                     request.user, "payment.refund.gateway_error", request,
                     {"refund_id": refund.id, "error": str(exc)[:300]},
                 )
                 return Response(
-                    {"error": f"Wave n'a pas effectué le remboursement : {exc}"},
+                    {"error": f"{provider_label} n'a pas effectué le remboursement : {exc}"},
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
         refund.process()
