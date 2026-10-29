@@ -5,6 +5,7 @@ apps/<son_app>/tests.py au fur et à mesure du backlog réel.
 """
 import pytest
 from apps.catalog.models import Store
+from apps.kyc.models import SellerKYC
 from apps.monetization.models import Notification
 from apps.users.models import Role, User, UserRole
 
@@ -79,16 +80,22 @@ def test_admin_can_approve_store(client):
         last_name="Owner",
     )
     store = Store.objects.create(owner=owner, name="Boutique Approve", status=Store.Status.INACTIVE)
+    kyc = SellerKYC.objects.create(
+        seller=owner, document_type="cni", document_front="f.jpg", document_back="b.jpg",
+        status=SellerKYC.Status.SUBMITTED,
+    )
 
     client.force_login(admin_user)
     response = client.post(f"/api/catalog/stores/{store.id}/approve/")
 
     assert response.status_code == 200
     store.refresh_from_db()
+    kyc.refresh_from_db()
     assert store.status == Store.Status.ACTIVE
+    assert kyc.status == SellerKYC.Status.VERIFIED
     notification = Notification.objects.filter(user=owner, metadata__store_id=str(store.id)).first()
     assert notification is not None
-    assert "approuvée" in notification.subject.lower()
+    assert "validé" in notification.subject.lower()
 
 
 @pytest.mark.django_db
@@ -122,6 +129,7 @@ def test_admin_can_reject_store(client):
     assert response.status_code == 200
     store.refresh_from_db()
     assert store.status == Store.Status.SUSPENDED
+    assert store.rejection_reason == "Données manquantes"
     notification = Notification.objects.filter(user=owner, metadata__store_id=str(store.id)).first()
     assert notification is not None
-    assert "rejetée" in notification.subject.lower()
+    assert "corriger" in notification.subject.lower()

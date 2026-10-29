@@ -50,6 +50,25 @@ class Store(models.Model):
     def get_active_products(self):
         return self.products.filter(status='active')
 
+    def is_rejected(self):
+        """Dossier refusé par l'administration, en attente de corrections.
+
+        Le refus pose le statut SUSPENDED avec un motif ; une suspension après
+        approbation n'a pas de motif (l'approbation l'efface).
+        """
+        return self.status == self.Status.SUSPENDED and bool(self.rejection_reason)
+
+    def reopen_if_rejected(self):
+        """Remet un dossier refusé en examen quand le vendeur l'a corrigé.
+
+        Renvoie True si le dossier repart chez l'administration.
+        """
+        if not self.is_rejected():
+            return False
+        self.status = self.Status.INACTIVE
+        self.save(update_fields=["status", "updated_at"])
+        return True
+
     def calculate_rating(self):
         reviews = Review.objects.filter(product__store=self)
         if reviews.exists():

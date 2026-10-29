@@ -34,15 +34,22 @@ export async function listMyStores() {
   return data.results;
 }
 
-export function createStore(payload: {
+export interface StorePayload {
   name: string;
   category?: number | null;
   phone?: string;
   description?: string;
   address?: string;
   city?: string;
-}) {
+}
+
+export function createStore(payload: StorePayload) {
   return apiPost<Store>("/catalog/stores/", payload);
+}
+
+/** Corrige une boutique refusée : le backend la remet aussitôt en examen. */
+export function updateStore(id: string, payload: StorePayload) {
+  return apiPatch<Store>(`/catalog/stores/${id}/`, payload);
 }
 
 /** Catégories de boutique (Électronique, Mode, ...) — pour le formulaire de création de boutique. */
@@ -50,12 +57,17 @@ export async function listStoreCategories() {
   return apiGet<StoreCategory[]>("/catalog/store-categories/");
 }
 
+/** Valide le dossier vendeur complet : boutique active ET identité vérifiée. */
 export function approveStore(id: string) {
   return apiPost<Store>(`/catalog/stores/${id}/approve/`);
 }
 
-export function rejectStore(id: string, reason?: string) {
-  return apiPost<Store>(`/catalog/stores/${id}/reject/`, { reason });
+/**
+ * Refuse le dossier vendeur (motif obligatoire). `identityRejected` : la pièce
+ * d'identité est aussi à refaire ; sinon seule la boutique est à corriger.
+ */
+export function rejectStore(id: string, reason: string, identityRejected = true) {
+  return apiPost<Store>(`/catalog/stores/${id}/reject/`, { reason, identity_rejected: identityRejected });
 }
 
 export function updateStorePosition(storeId: string, payload: { latitude: number; longitude: number }) {

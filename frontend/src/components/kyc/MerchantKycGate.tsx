@@ -1,20 +1,20 @@
 import { Link } from "react-router-dom";
-import { CheckCircle2, Home, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Home, ShieldCheck, Store as StoreIcon } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as kycApi from "@/api/kyc";
-import * as catalogApi from "@/api/catalog";
 import { ApiError } from "@/lib/api";
 import { KycStatusCard } from "@/components/kyc/KycStatusCard";
 import { DashboardShell, type DashboardNavItem } from "@/components/layout/DashboardShell";
 import { Spinner } from "@/components/ui/Spinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Logo } from "@/components/brand/Logo";
-import type { SellerKyc, Store } from "@/types";
+import type { SellerKyc } from "@/types";
 
 /**
- * Le vendeur crée d'abord sa boutique et attend sa validation. Une fois la
- * boutique approuvée, le KYC devient la dernière étape obligatoire avant la
- * vente. L'API continue de bloquer publication et retraits sans KYC vérifié.
+ * Parcours vendeur : pièce d'identité d'abord (cet écran bloque l'espace
+ * tant qu'elle n'est pas envoyée), puis la boutique. L'administration valide
+ * les deux en une seule décision. L'API bloque de son côté la création de
+ * boutique sans pièce envoyée, et la vente sans validation.
  */
 async function fetchOwnKyc(): Promise<SellerKyc | null> {
   try {
@@ -25,18 +25,8 @@ async function fetchOwnKyc(): Promise<SellerKyc | null> {
   }
 }
 
-interface MerchantAccessState {
-  kyc: SellerKyc | null;
-  stores: Store[];
-}
-
-async function fetchMerchantAccess(): Promise<MerchantAccessState> {
-  const [kyc, stores] = await Promise.all([fetchOwnKyc(), catalogApi.listMyStores()]);
-  return { kyc, stores };
-}
-
 export function MerchantKycGate({ nav, title }: { nav: DashboardNavItem[]; title: string }) {
-  const { data, loading, error, refetch } = useAsync<MerchantAccessState>(fetchMerchantAccess, []);
+  const { data, loading, error, refetch } = useAsync<SellerKyc | null>(fetchOwnKyc, []);
 
   if (loading) {
     return (
@@ -54,45 +44,49 @@ export function MerchantKycGate({ nav, title }: { nav: DashboardNavItem[]; title
     );
   }
 
-  const verified = data?.kyc?.status === "VERIFIED";
-  const hasApprovedStore = data?.stores.some((store) => store.status === "active") ?? false;
+  const kycStatus = data?.status ?? null;
+  const locked = kycStatus === "SUSPENDED" || kycStatus === "BLOCKED";
+  // Tant que la pièce n'est pas envoyée (ou après un refus), l'espace se
+  // limite à cet écran ; ensuite, le vendeur peut déposer sa boutique.
+  const mustSendIdentity = kycStatus === null || kycStatus === "PENDING" || kycStatus === "REJECTED";
 
-  if (hasApprovedStore && !verified) {
+  if (locked || mustSendIdentity) {
     return (
       <div className="min-h-screen bg-muted">
         <header className="flex items-center justify-between border-b border-border bg-white px-6 py-4">
           <Logo />
           <span className="inline-flex items-center gap-2 rounded-full bg-orange/10 px-3 py-1 text-xs font-semibold text-orange-dark">
             <ShieldCheck className="h-4 w-4" />
-            Étape 3 sur 3 — identité à vérifier
+            {locked ? "Compte vendeur restreint" : "Étape 1 sur 2 — votre identité"}
           </span>
         </header>
         <main className="mx-auto w-full max-w-2xl px-4 py-10">
           <div className="mb-6 text-center">
             <h1 className="font-display text-2xl font-extrabold text-ink">Espace vendeur</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Votre boutique est approuvée. Envoyez maintenant votre pièce d'identité pour activer la vente
-              et débloquer toutes les fonctions de votre espace (délai indicatif : ≤ 24 h).
+              {kycStatus === "REJECTED"
+                ? "Votre dossier est à corriger. Renvoyez votre pièce d'identité : il repartira aussitôt en examen."
+                : "Bienvenue ! Envoyez votre pièce d'identité pour pouvoir créer votre boutique."}
             </p>
           </div>
           <ol className="mb-5 grid gap-2 rounded-2xl border border-border bg-white p-4 text-sm sm:grid-cols-3">
-            <li className="flex items-start gap-2 text-success">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><strong className="block">1. Compte activé</strong><span className="text-xs text-muted-foreground">Téléphone ou e-mail vérifié</span></span>
-            </li>
-            <li className="flex items-start gap-2 text-success">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><strong className="block">2. Boutique approuvée</strong><span className="text-xs text-muted-foreground">Validée par l'administration</span></span>
-            </li>
             <li className="flex items-start gap-2 text-orange-dark">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><strong className="block">3. Identité</strong><span className="text-xs text-muted-foreground">Documents à valider</span></span>
+              <span><strong className="block">1. Identité</strong><span className="text-xs text-muted-foreground">Recto et verso de votre pièce</span></span>
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground">
+              <StoreIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong className="block">2. Boutique</strong><span className="text-xs">Nom, téléphone, catégorie</span></span>
+            </li>
+            <li className="flex items-start gap-2 text-muted-foreground">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><strong className="block">Validation</strong><span className="text-xs">Une seule, par l'administration (≤ 24 h)</span></span>
             </li>
           </ol>
-          <KycStatusCard kind="seller" />
+          <KycStatusCard kind="seller" onSubmitted={refetch} />
           <p className="mt-3 rounded-xl border border-orange/20 bg-orange/5 px-4 py-3 text-xs text-muted-foreground">
-            Votre boutique est déjà validée. Dès que l'administration approuve votre identité, vous pourrez publier
-            des produits, recevoir des commandes et utiliser les fonctions financières.
+            Une fois votre identité et votre boutique validées, vous pourrez publier vos produits, recevoir des
+            commandes et utiliser les fonctions financières.
           </p>
           <div className="mt-6 flex flex-col items-center gap-3 text-center">
             <Link
