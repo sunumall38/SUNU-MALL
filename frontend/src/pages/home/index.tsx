@@ -72,7 +72,7 @@ export default function HomePage() {
       icon: DRIVER_ICON,
       title: "Livreur",
       desc: "Courses assignées, itinéraire, preuve de livraison.",
-      path: user ? (user.roles.includes("driver") ? "/driver-dashboard" : roleHomePath(user.roles)) : "/driver-login",
+      path: user ? (user.roles.includes("driver") ? "/driver-dashboard" : roleHomePath(user.roles)) : "/login",
       bg: "bg-green-50",
       ic: "text-green-600",
     },

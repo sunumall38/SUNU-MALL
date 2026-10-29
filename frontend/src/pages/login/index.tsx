@@ -97,24 +97,20 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <div className="mt-6 flex flex-col gap-1.5 border-t border-border pt-5 text-center text-sm text-muted-foreground">
+      <div className="mt-6 flex flex-col gap-2 border-t border-border pt-5 text-center text-sm text-muted-foreground">
         <p>
           Pas encore de compte ?{" "}
           <Link to="/register-client" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Créer un compte client
-          </Link>
-        </p>
-        <p>
-          Vous êtes commerçant ?{" "}
+            Créer un compte
+          </Link>{" "}
+          ou{" "}
           <Link to="/register-merchant" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Ouvrir une boutique
+            ouvrir une boutique
           </Link>
         </p>
-        <p>
-          Vous êtes livreur ?{" "}
-          <Link to="/driver-login" className="font-semibold text-orange transition-colors hover:text-orange-dark">
-            Connexion livreur
-          </Link>
+        <p className="text-xs">
+          Livreurs et partenaires : connectez-vous ici avec le numéro de téléphone et le mot de passe fournis par
+          Sunu Mall ou votre entreprise.
         </p>
       </div>
     </div>
