@@ -18,7 +18,8 @@ export function FavoriteButton({ productId, size = 18, floating = true }: { prod
       accessibilityState={{ selected: liked }}
       hitSlop={8}
       onPress={() => (signedIn ? toggle(productId) : router.push("/login"))}
-      style={floating ? styles.floating : undefined}
+      // Gros cœur (fiche produit) : même taille que le bouton retour voisin.
+      style={floating ? [styles.floating, size >= 20 && styles.large] : undefined}
     >
       <Ionicons name={liked ? "heart" : "heart-outline"} size={size} color={colors.danger} />
     </Pressable>
@@ -35,4 +36,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     ...shadow,
   },
+  large: { width: 40, height: 40, borderRadius: 20 },
 });
