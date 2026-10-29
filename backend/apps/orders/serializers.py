@@ -1,4 +1,9 @@
+import re
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+
+from apps.users.phone import normalize_senegal_phone
 from .models import (
     Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryPickup,
     DeliveryPricingRule, DeliveryTracking, DeliveryZone, Driver, GlobalOrder,
@@ -256,13 +261,47 @@ class PartnerZoneUpdateSerializer(PartnerZonePricingSerializer):
         read_only_fields = ["id", "zone", "zone_name", "client_fee", "partner_cost", "margin"]
 
 
+class PartnerPayoutSerializer(serializers.ModelSerializer):
+    """Coordonnées de versement du partenaire (Wave, Orange Money ou IBAN)."""
+
+    class Meta:
+        model = DeliveryPartner
+        fields = ["payout_method", "payout_account", "payout_holder", "payout_updated_at"]
+        read_only_fields = ["payout_updated_at"]
+        extra_kwargs = {
+            "payout_method": {"required": True, "allow_blank": False},
+            "payout_account": {"required": True, "allow_blank": False},
+            "payout_holder": {"required": True, "allow_blank": False},
+        }
+
+    def validate(self, attrs):
+        method = attrs.get("payout_method", getattr(self.instance, "payout_method", ""))
+        account = (attrs.get("payout_account", getattr(self.instance, "payout_account", "")) or "").strip()
+        if method == DeliveryPartner.PayoutMethod.BANK_TRANSFER:
+            iban = re.sub(r"\s", "", account).upper()
+            if not re.fullmatch(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}", iban):
+                raise serializers.ValidationError({"payout_account": "IBAN invalide (ex. SN08 SN01 0015 2000 0000 1234 5678)."})
+            attrs["payout_account"] = iban
+        else:
+            try:
+                attrs["payout_account"] = normalize_senegal_phone(account)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"payout_account": exc.messages})
+        attrs["payout_holder"] = (attrs.get("payout_holder") or getattr(self.instance, "payout_holder", "")).strip()
+        if not method or not attrs["payout_holder"]:
+            raise serializers.ValidationError("Moyen de paiement, compte et titulaire sont obligatoires.")
+        return attrs
+
+
 class PartnerInvoiceSerializer(serializers.ModelSerializer):
     partner_name = serializers.CharField(source="partner.name", read_only=True)
+    # Où verser le montant : affiché à l'admin à côté de « Marquer payée ».
+    partner_payout = PartnerPayoutSerializer(source="partner", read_only=True)
 
     class Meta:
         model = PartnerInvoice
         fields = [
-            "id", "partner", "partner_name", "reference", "status", "period_start", "period_end",
+            "id", "partner", "partner_name", "partner_payout", "reference", "status", "period_start", "period_end",
             "due_date", "marketplace_rate", "on_demand_rate",
             "marketplace_deliveries_count", "on_demand_deliveries_count",
             "marketplace_amount", "on_demand_amount", "collection_fees",

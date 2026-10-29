@@ -25,6 +25,12 @@ const STATUS_VARIANT: Record<PartnerStatus, "success" | "default" | "danger"> = 
   suspended: "danger",
 };
 
+const PAYOUT_LABEL: Record<string, string> = {
+  wave: "Wave",
+  orange_money: "Orange Money",
+  bank_transfer: "IBAN",
+};
+
 function PendingInvoices() {
   const { data: invoices, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartnerInvoices("pending"), []);
   const [payingId, setPayingId] = useState<number | null>(null);
@@ -66,6 +72,16 @@ function PendingInvoices() {
                 {invoice.reference} · {invoice.marketplace_deliveries_count} livraison(s)
                 {invoice.due_date ? ` · échéance le ${formatDate(invoice.due_date)}` : ""}
               </p>
+              {invoice.partner_payout.payout_account ? (
+                <p className="text-xs text-ink">
+                  Verser sur : {PAYOUT_LABEL[invoice.partner_payout.payout_method] ?? invoice.partner_payout.payout_method}{" "}
+                  <span className="font-mono">{invoice.partner_payout.payout_account}</span> · {invoice.partner_payout.payout_holder}
+                </p>
+              ) : (
+                <p className="text-xs font-semibold text-orange-dark">
+                  Coordonnées de versement non renseignées par le partenaire.
+                </p>
+              )}
             </div>
             <Button size="sm" variant="secondary" onClick={() => markPaid(invoice.id)} loading={payingId === invoice.id}>
               <Check className="h-4 w-4" /> Marquer payée

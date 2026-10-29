@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerInvoiceDetail, PartnerSpaceStats, PartnerZonePricing } from "@/types";
+import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerInvoiceDetail, PartnerPayout, PartnerPayoutMethod, PartnerSpaceStats, PartnerZonePricing } from "@/types";
 
 /** Profil de l'entreprise partenaire (détail + statistiques). */
 export function getPartnerProfile() {
@@ -15,8 +15,13 @@ export function rotatePartnerApiKey() {
   return apiPost<{ api_key: string; api_key_last4: string }>("/orders/partner/api-key/");
 }
 
-export function getPartnerBankInfo() {
-  return apiGet<{ method: string; iban: string; provider: string }>("/orders/partner/banks/");
+export function getPartnerPayout() {
+  return apiGet<PartnerPayout>("/orders/partner/banks/");
+}
+
+/** Un changement est tracé et confirmé par e-mail au partenaire. */
+export function updatePartnerPayout(payload: Pick<PartnerPayout, "payout_account" | "payout_holder"> & { payout_method: PartnerPayoutMethod }) {
+  return apiPatch<PartnerPayout>("/orders/partner/banks/", payload);
 }
 
 /** Tableau de bord (spec §6) : volumes, taux, revenus, impayés. */

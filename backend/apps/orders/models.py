@@ -94,6 +94,11 @@ class DeliveryPartner(models.Model):
         ACTIVE = "active", "Actif"
         SUSPENDED = "suspended", "Suspendu"
 
+    class PayoutMethod(models.TextChoices):
+        WAVE = "wave", "Wave"
+        ORANGE_MONEY = "orange_money", "Orange Money"
+        BANK_TRANSFER = "bank_transfer", "Virement bancaire"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Compte utilisateur (rôle `partner`) qui pilote l'Espace Partenaire ;
     # l'admin lie l'entreprise à un compte après activation (spec §2, §11).
@@ -114,6 +119,13 @@ class DeliveryPartner(models.Model):
     # est stocké ; le clair n'est rendu qu'une fois à la génération.
     api_key_hash = models.CharField(max_length=64, blank=True, default="")
     api_key_last4 = models.CharField(max_length=4, blank=True, default="")
+    # Coordonnées de versement des factures mensuelles : numéro Wave /
+    # Orange Money (+221…) ou IBAN. Toute modification est tracée et
+    # notifiée au partenaire (protection contre le détournement de paiement).
+    payout_method = models.CharField(max_length=20, choices=PayoutMethod.choices, blank=True, default="")
+    payout_account = models.CharField(max_length=64, blank=True, default="")
+    payout_holder = models.CharField(max_length=150, blank=True, default="")
+    payout_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

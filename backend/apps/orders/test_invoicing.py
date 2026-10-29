@@ -137,3 +137,77 @@ class PartnerInvoicingTests(TestCase):
         detail = client.get(f"/api/orders/partner/invoices/{invoice.id}/")
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
         self.assertEqual([d["id"] for d in detail.data["deliveries"]], [str(delivery.id)])
+
+
+class PartnerPayoutDetailsTests(TestCase):
+    """Coordonnées de versement : saisie par le partenaire, visibles par l'admin."""
+
+    def setUp(self):
+        for role_name in (Role.RoleName.PARTNER, Role.RoleName.ADMIN):
+            Role.objects.get_or_create(name=role_name)
+        self.partner_user = User.objects.create_user(username="p@ex.com", email="p@ex.com", password="x")
+        UserRole.objects.create(user=self.partner_user, role=Role.objects.get(name=Role.RoleName.PARTNER))
+        self.partner = DeliveryPartner.objects.create(name="CityCourier", user=self.partner_user)
+        self.client = APIClient()
+        self.client.force_authenticate(self.partner_user)
+
+    def test_partner_sets_wave_number_normalized_and_change_is_traced(self):
+        from apps.security.models import SecurityLog
+
+        empty = self.client.get("/api/orders/partner/banks/")
+        self.assertEqual(empty.status_code, status.HTTP_200_OK)
+        self.assertEqual(empty.data["payout_account"], "")
+
+        response = self.client.patch(
+            "/api/orders/partner/banks/",
+            {"payout_method": "wave", "payout_account": "77 123 45 67", "payout_holder": " Aliou Fall "},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.payout_account, "+221771234567")
+        self.assertEqual(self.partner.payout_holder, "Aliou Fall")
+        self.assertIsNotNone(self.partner.payout_updated_at)
+        log = SecurityLog.objects.get(action="PARTNER_PAYOUT_CHANGED")
+        self.assertEqual(log.metadata["new"], "…4567")
+        self.assertNotIn("771234567", str(log.metadata))
+        self.assertTrue(
+            Notification.objects.filter(user=self.partner_user, metadata__kind="partner_payout_changed").exists()
+        )
+
+    def test_iban_is_normalized_and_invalid_values_rejected(self):
+        ok = self.client.patch(
+            "/api/orders/partner/banks/",
+            {"payout_method": "bank_transfer", "payout_account": "sn08 sn01 0015 2000 0000 1234 5678",
+             "payout_holder": "CityCourier SARL"},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_200_OK, ok.data)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.payout_account, "SN08SN0100152000000012345678")
+
+        for payload in (
+            {"payout_method": "bank_transfer", "payout_account": "1234", "payout_holder": "X"},
+            {"payout_method": "orange_money", "payout_account": "12", "payout_holder": "X"},
+            {"payout_method": "wave", "payout_account": "771234567", "payout_holder": ""},
+            {"payout_method": "paypal", "payout_account": "771234567", "payout_holder": "X"},
+        ):
+            response = self.client.patch("/api/orders/partner/banks/", payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, payload)
+
+    def test_admin_sees_payout_details_on_invoices(self):
+        self.partner.payout_method = DeliveryPartner.PayoutMethod.ORANGE_MONEY
+        self.partner.payout_account = "+221781234567"
+        self.partner.payout_holder = "Aliou Fall"
+        self.partner.save()
+        PartnerInvoice.objects.create(
+            partner=self.partner, status=PartnerInvoice.Status.PENDING,
+            period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), total_due=Decimal("800"),
+        )
+        admin = User.objects.create_user(username="a@ex.com", email="a@ex.com", password="x")
+        UserRole.objects.create(user=admin, role=Role.objects.get(name=Role.RoleName.ADMIN))
+        self.client.force_authenticate(admin)
+        response = self.client.get("/api/orders/partner-invoices/?status=pending")
+        payout = response.data["results"][0]["partner_payout"]
+        self.assertEqual(payout["payout_method"], "orange_money")
+        self.assertEqual(payout["payout_account"], "+221781234567")

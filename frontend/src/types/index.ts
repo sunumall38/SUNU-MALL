@@ -845,6 +845,7 @@ export interface PartnerInvoice {
   id: number;
   partner: string;
   partner_name: string;
+  partner_payout: PartnerPayout;
   reference: string;
   status: PartnerInvoiceStatus;
   period_start: string;
@@ -865,6 +866,17 @@ export interface PartnerInvoice {
   paid_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type PartnerPayoutMethod = "wave" | "orange_money" | "bank_transfer";
+
+/** Coordonnées de versement des factures partenaire. */
+export interface PartnerPayout {
+  payout_method: PartnerPayoutMethod | "";
+  /** Numéro au format +221… (Wave / Orange Money) ou IBAN sans espaces. */
+  payout_account: string;
+  payout_holder: string;
+  payout_updated_at: string | null;
 }
 
 /** Facture avec le détail des courses réglées (coût partenaire figé de chacune). */

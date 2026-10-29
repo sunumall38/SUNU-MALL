@@ -33,7 +33,7 @@ from .serializers import (
     DeliverySerializer, DeliveryTrackingSerializer, DriverSerializer,
     GlobalOrderSerializer, OrderSerializer, DeliveryEventSerializer,
     DeliveryPartnerSerializer, DeliveryPartnerDetailSerializer,
-    PartnerInvoiceDetailSerializer, PartnerInvoiceSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
+    PartnerInvoiceDetailSerializer, PartnerInvoiceSerializer, PartnerPayoutSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
     PartnerZoneUpdateSerializer,
 )
 from apps.catalog.models import Product, ProductVariant, Store
@@ -1488,6 +1488,38 @@ class PartnerViewSet(viewsets.ModelViewSet):
         return Response({"api_key": raw, "api_key_last4": partner.api_key_last4})
 
 
+def _mask(account):
+    return f"…{account[-4:]}" if account else "aucun"
+
+
+def _notify_payout_change(request, partner, previous):
+    from apps.monetization.models import Notification
+    from apps.security.utils import log_security_event
+
+    log_security_event(
+        request.user, "PARTNER_PAYOUT_CHANGED", request,
+        metadata={
+            "partner": str(partner.id), "method": partner.payout_method,
+            "previous": _mask(previous), "new": _mask(partner.payout_account),
+        },
+    )
+    Notification.objects.create(
+        user=request.user,
+        channel=Notification.Channel.EMAIL,
+        subject="Vos coordonnées de paiement ont été modifiées",
+        message=(
+            "Bonjour,\n\n"
+            f"Le compte de versement de {partner.name} vient d'être modifié "
+            f"({_mask(previous)} → {_mask(partner.payout_account)}, "
+            f"{partner.get_payout_method_display()}).\n\n"
+            "Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement "
+            "le support Sunu Mall et changez votre mot de passe.\n\n"
+            "Cordialement,\nL'équipe Sunu Mall"
+        ),
+        metadata={"kind": "partner_payout_changed"},
+    ).send()
+
+
 class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
     """Factures partenaires côté administration (admin uniquement).
 
@@ -1557,9 +1589,21 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         return Response({"api_key": raw, "api_key_last4": partner.api_key_last4})
 
     def banks(self, request):
-        """Moyens de paiement du partenaire (affichage) — complétion §12 monétique."""
-        self._partner(request)  # réservé aux partenaires
-        return Response({"method": "bank_transfer", "iban": "", "provider": ""})
+        """Coordonnées de versement des factures (Wave, Orange Money ou IBAN).
+
+        Un changement est la cible classique d'un détournement de paiement
+        (compte piraté) : il est inscrit au journal de sécurité et confirmé
+        par e-mail au partenaire, avec l'ancien et le nouveau compte masqués.
+        """
+        partner = self._partner(request)
+        if request.method == "PATCH":
+            previous = partner.payout_account
+            serializer = PartnerPayoutSerializer(partner, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(payout_updated_at=timezone.now())
+            if partner.payout_account != previous:
+                _notify_payout_change(request, partner, previous)
+        return Response(PartnerPayoutSerializer(partner).data)
 
     def stats(self, request):
         partner = self._partner(request)
