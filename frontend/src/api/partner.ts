@@ -29,8 +29,14 @@ export function getPartnerStats() {
   return apiGet<PartnerSpaceStats>("/orders/partner/stats/");
 }
 
-export function listPartnerDeliveries(status?: string) {
-  return apiGet<Delivery[]>(`/orders/partner/deliveries/${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+/** Livraisons de l'entreprise, 20 par page (plus récentes d'abord). `active` : seulement les courses en cours. */
+export function listPartnerDeliveries(params: { status?: string; active?: boolean; page?: number } = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.active) qs.set("active", "1");
+  if (params.page && params.page > 1) qs.set("page", String(params.page));
+  const query = qs.toString();
+  return apiGet<Paginated<Delivery>>(`/orders/partner/deliveries/${query ? `?${query}` : ""}`);
 }
 
 export function listPartnerInvoices() {

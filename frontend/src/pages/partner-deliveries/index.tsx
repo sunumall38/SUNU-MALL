@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { FilterBar } from "@/components/ui/FilterBar";
+import { Pagination } from "@/components/ui/Pagination";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -25,10 +26,20 @@ const STATUS_FILTER_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export default function PartnerDeliveriesPage() {
-  const { data: deliveries, loading, error, refetch } = useAsync(() => partnerApi.listPartnerDeliveries(), []);
   const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const { data, loading, error, refetch } = useAsync(
+    () => partnerApi.listPartnerDeliveries({ status: status === "all" ? undefined : status, page }),
+    [status, page],
+  );
 
-  const filtered = deliveries?.filter((d) => status === "all" || d.status === status) ?? [];
+  const filtered = data?.results ?? [];
+  const totalPages = data ? Math.max(1, Math.ceil(data.count / 20)) : 1;
+
+  function changeStatus(value: string) {
+    setStatus(value);
+    setPage(1);
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -38,8 +49,8 @@ export default function PartnerDeliveriesPage() {
         </h1>
         <FilterBar
           filters={[{ key: "status", label: "Statut", options: STATUS_FILTER_OPTIONS, value: status }]}
-          onChange={(_key, value) => setStatus(value)}
-          onReset={() => setStatus("all")}
+          onChange={(_key, value) => changeStatus(value)}
+          onReset={() => changeStatus("all")}
         />
       </div>
 
@@ -82,6 +93,7 @@ export default function PartnerDeliveriesPage() {
           ))}
         </div>
       )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-2" />
     </div>
   );
 }

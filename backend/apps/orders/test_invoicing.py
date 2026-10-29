@@ -211,3 +211,43 @@ class PartnerPayoutDetailsTests(TestCase):
         payout = response.data["results"][0]["partner_payout"]
         self.assertEqual(payout["payout_method"], "orange_money")
         self.assertEqual(payout["payout_account"], "+221781234567")
+
+
+class PartnerDeliveriesListTests(TestCase):
+    """GET /api/orders/partner/deliveries/ : paginé, filtrable, cloisonné."""
+
+    def setUp(self):
+        Role.objects.get_or_create(name=Role.RoleName.PARTNER)
+        self.partner_user = User.objects.create_user(username="p@ex.com", email="p@ex.com", password="x")
+        UserRole.objects.create(user=self.partner_user, role=Role.objects.get(name=Role.RoleName.PARTNER))
+        self.partner = DeliveryPartner.objects.create(name="CityCourier", user=self.partner_user)
+        other = DeliveryPartner.objects.create(name="Other")
+        merchant = User.objects.create_user(username="m@ex.com", email="m@ex.com", password="x")
+        store = Store.objects.create(owner=merchant, name="Boutique")
+        customer = User.objects.create_user(username="c@ex.com", email="c@ex.com", password="x")
+        for i in range(25):
+            order = Order.objects.create(customer=customer, store=store, total_amount=1000)
+            Delivery.objects.create(
+                order=order, partner=self.partner,
+                status=Delivery.Status.DELIVERED if i < 20 else Delivery.Status.IN_TRANSIT,
+            )
+        Delivery.objects.create(
+            order=Order.objects.create(customer=customer, store=store, total_amount=1000), partner=other,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(self.partner_user)
+
+    def test_paginated_and_scoped(self):
+        first = self.client.get("/api/orders/partner/deliveries/")
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.data["count"], 25)
+        self.assertEqual(len(first.data["results"]), 20)
+        second = self.client.get("/api/orders/partner/deliveries/?page=2")
+        self.assertEqual(len(second.data["results"]), 5)
+
+    def test_status_and_active_filters(self):
+        delivered = self.client.get("/api/orders/partner/deliveries/?status=delivered")
+        self.assertEqual(delivered.data["count"], 20)
+        active = self.client.get("/api/orders/partner/deliveries/?active=1")
+        self.assertEqual(active.data["count"], 5)
+        self.assertTrue(all(d["status"] == "in_transit" for d in active.data["results"]))

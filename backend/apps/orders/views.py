@@ -13,6 +13,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import AuthenticationFailed, MethodNotAllowed, NotFound, PermissionDenied, ValidationError
 from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -1553,6 +1554,14 @@ class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(PartnerInvoiceSerializer(invoice).data)
 
 
+# Courses terminées (livrées, échouées, retournées, annulées).
+FINISHED_DELIVERY_STATUSES = [
+    Delivery.Status.DELIVERED, Delivery.Status.DELIVERY_FAILED,
+    Delivery.Status.CUSTOMER_UNAVAILABLE, Delivery.Status.RETURNED,
+    Delivery.Status.CANCELLED,
+]
+
+
 class PartnerSpaceViewSet(viewsets.ViewSet):
     """Espace Partenaire : l'utilisateur `partner` pilote son entreprise.
 
@@ -1561,7 +1570,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     - PATCH /api/orders/partner/profile/       → mise à jour du profil
     - POST /api/orders/partner/api-key/        → rotation clé d'API
     - GET  /api/orders/partner/stats/          → tableau de bord (spec §6)
-    - GET  /api/orders/partner/deliveries/     → livraisons (filtres si trouvés)
+    - GET  /api/orders/partner/deliveries/     → livraisons paginées (?status=, ?active=1, ?page=)
     - GET  /api/orders/partner/invoices/       → factures (spec §19-§22)
     - GET  /api/orders/partner/invoices/<pk>/  → détail + délai de paiement
     - GET  /api/orders/partner/zones/          → tarifs par zone
@@ -1614,13 +1623,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
         def _count(qs):
             return qs.count()
 
-        active = deliveries.exclude(
-            status__in=[
-                Delivery.Status.DELIVERED, Delivery.Status.DELIVERY_FAILED,
-                Delivery.Status.CUSTOMER_UNAVAILABLE, Delivery.Status.RETURNED,
-                Delivery.Status.CANCELLED,
-            ]
-        )
+        active = deliveries.exclude(status__in=FINISHED_DELIVERY_STATUSES)
         month_deliveries = deliveries.filter(created_at__date__gte=month_start)
         # Coût figé à l'affectation ; recalcul uniquement pour les courses
         # antérieures à ce gel (partner_cost resté à 0).
@@ -1657,11 +1660,19 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
 
     def deliveries(self, request):
         partner = self._partner(request)
-        qs = partner.deliveries.select_related("order", "order__store", "driver", "driver__user")
+        qs = partner.deliveries.select_related(
+            "order", "order__store", "driver", "driver__user"
+        ).order_by("-created_at")
         status_filter = request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
-        return Response(DeliverySerializer(qs, many=True).data)
+        if request.query_params.get("active") in ("1", "true"):
+            qs = qs.exclude(status__in=FINISHED_DELIVERY_STATUSES)
+        # Paginé (20 par page) : l'historique complet, avec les données des
+        # clients, n'est plus renvoyé d'un bloc.
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        return paginator.get_paginated_response(DeliverySerializer(page, many=True).data)
 
     def invoices(self, request):
         partner = self._partner(request)
