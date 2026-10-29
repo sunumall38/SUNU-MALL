@@ -550,8 +550,11 @@ class DriverViewSet(viewsets.ModelViewSet):
             raise ValidationError({"phone": exc.messages})
         vehicle_type = (request.data.get("vehicle_type") or "").strip()
 
+        # Le téléphone est l'identifiant de connexion : sans lui, le livreur
+        # ne pourrait jamais se connecter.
         missing = [f for f, v in {
-            "email": email, "first_name": first_name, "last_name": last_name, "vehicle_type": vehicle_type,
+            "email": email, "first_name": first_name, "last_name": last_name,
+            "phone": phone, "vehicle_type": vehicle_type,
         }.items() if not v]
         if missing:
             raise ValidationError(f"Champs manquants : {', '.join(missing)}.")
@@ -1448,11 +1451,14 @@ class PartnerViewSet(viewsets.ModelViewSet):
             data["temporary_password"] = None
             return Response(data)
 
+        # Le téléphone est l'identifiant de connexion (/login) : obligatoire.
+        if not (partner.contact_phone or "").strip():
+            raise ValidationError({"contact_phone": "Renseignez le téléphone de contact : il sert à se connecter."})
         try:
-            phone = normalize_senegal_phone(partner.contact_phone) if partner.contact_phone else ""
+            phone = normalize_senegal_phone(partner.contact_phone)
         except DjangoValidationError as exc:
             raise ValidationError({"contact_phone": exc.messages})
-        if phone and User.objects.filter(phone=phone).exists():
+        if User.objects.filter(phone=phone).exists():
             raise ValidationError({"contact_phone": "Ce numéro de téléphone est déjà utilisé."})
 
         first_name, _, last_name = (partner.contact_name or partner.name).strip().partition(" ")

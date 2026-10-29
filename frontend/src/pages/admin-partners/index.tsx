@@ -31,7 +31,7 @@ export default function AdminPartnersPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [rawApiKey, setRawApiKey] = useState<{ id: string; key: string } | null>(null);
-  const [newAccount, setNewAccount] = useState<{ email: string; password: string | null } | null>(null);
+  const [newAccount, setNewAccount] = useState<{ email: string; phone: string; password: string | null } | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -103,7 +103,7 @@ export default function AdminPartnersPage() {
     setNewAccount(null);
     try {
       const result = await adminPartnersApi.createAdminPartnerAccount(partner.id);
-      setNewAccount({ email: result.account_email ?? partner.contact_email, password: result.temporary_password });
+      setNewAccount({ email: result.account_email ?? partner.contact_email, phone: partner.contact_phone, password: result.temporary_password });
       refetch();
     } catch (err) {
       setActionError(apiErrorMessage(err, "Impossible de créer le compte partenaire."));
@@ -163,12 +163,12 @@ export default function AdminPartnersPage() {
             {newAccount.password ? (
               <>
                 <p className="text-xs text-emerald-800">
-                  Transmettez ces identifiants au partenaire (le mot de passe n'est affiché qu'une seule fois) ; il devra le
+                  Transmettez au partenaire son téléphone et ce mot de passe provisoire (affiché une seule fois) pour se connecter sur /login ; il devra le
                   changer à sa première connexion.
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 break-all rounded-lg border border-dashed border-emerald-300 bg-white px-3 py-2 font-mono text-xs text-gray-900">
-                    {newAccount.email} · {newAccount.password}
+                    {newAccount.phone} · {newAccount.password}
                   </code>
                   <Button size="sm" variant="secondary" onClick={() => copyText(newAccount.password ?? "")} className="shrink-0">
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -242,15 +242,15 @@ export default function AdminPartnersPage() {
       <Card className="h-fit">
         <h2 className="mb-1 font-semibold text-ink">Créer une entreprise partenaire</h2>
         <p className="mb-4 text-xs text-muted-foreground">
-          L'entreprise est créée inactive. Ensuite : « Créer le compte » (connexion avec l'email de contact ; le mot de
-          passe provisoire s'affiche une seule fois, à transmettre au partenaire), puis activez-la et configurez ses zones de livraison.
+          L'entreprise est créée inactive. Ensuite : « Créer le compte » (connexion sur /login avec le téléphone de
+          contact ; le mot de passe provisoire s'affiche une seule fois, à transmettre au partenaire), puis activez-la et configurez ses zones de livraison.
         </p>
 
         <form onSubmit={handleCreate} className="flex flex-col gap-4">
           <Input label="Nom de l'entreprise" value={form.name} onChange={(e) => update("name", e.target.value)} required />
           <Input label="Personne de contact" value={form.contact_name} onChange={(e) => update("contact_name", e.target.value)} />
-          <Input label="Email de contact" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} />
-          <Input label="Téléphone" type="tel" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+221..." />
+          <Input label="Email de contact" type="email" value={form.contact_email} onChange={(e) => update("contact_email", e.target.value)} required />
+          <Input label="Téléphone (identifiant de connexion du partenaire)" type="tel" value={form.contact_phone} onChange={(e) => update("contact_phone", e.target.value)} placeholder="+221..." required />
           <Input label="Adresse" value={form.address} onChange={(e) => update("address", e.target.value)} />
           <Input label="Ville" value={form.city} onChange={(e) => update("city", e.target.value)} />
 

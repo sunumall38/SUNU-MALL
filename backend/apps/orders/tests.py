@@ -561,7 +561,10 @@ class DriverWorkflowTests(TestCase):
         self.client.force_authenticate(self.admin)
         response = self.client.post(
             "/api/orders/drivers/register/",
-            {"email": self.driver_user.email, "first_name": "Z", "last_name": "Z", "vehicle_type": "moto"},
+            {
+                "email": self.driver_user.email, "first_name": "Z", "last_name": "Z",
+                "phone": "+221770000098", "vehicle_type": "moto",
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1063,6 +1066,13 @@ class PartnerSpaceApiTests(TestCase):
         self.assertTrue(user.must_change_password)
         self.assertEqual((user.first_name, user.last_name), ("Fatou", "Ndiaye Sarr"))
         self.assertTrue(user.check_password(response.data["temporary_password"]))
+        # Connexion réelle par téléphone, comme sur /login.
+        self.client.force_authenticate(None)
+        login = self.client.post(
+            "/api/auth/login/", {"phone": "770000009", "password": response.data["temporary_password"]}, format="json"
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK, login.data)
+        self.assertTrue(login.data["user"]["must_change_password"])
         # Le nouveau compte accède bien à l'Espace Partenaire de son entreprise.
         self._as(user)
         profile = self.client.get("/api/orders/partner/profile/")
@@ -1094,6 +1104,11 @@ class PartnerSpaceApiTests(TestCase):
         other_company = self._new_company(name="D", contact_email="p@example.com", contact_phone="")
         response = self.client.post(f"/api/orders/partners/{other_company.id}/create-account/", {}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Sans téléphone : le compte ne pourrait pas se connecter.
+        no_phone = self._new_company(name="F", contact_email="f@newco.sn", contact_phone="")
+        response = self.client.post(f"/api/orders/partners/{no_phone.id}/create-account/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("contact_phone", response.data)
         # Sans email de contact.
         no_email = self._new_company(name="E", contact_email="", contact_phone="")
         response = self.client.post(f"/api/orders/partners/{no_email.id}/create-account/", {}, format="json")
