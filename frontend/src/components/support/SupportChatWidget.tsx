@@ -6,6 +6,7 @@ import type { ChatMessage } from "@/api/ia";
 import type { Product } from "@/types";
 import { ApiError } from "@/lib/api";
 import { cn, formatPrice } from "@/lib/utils";
+import { FEATURES } from "@/lib/features";
 
 const WELCOME_MESSAGE: ChatMessage = {
   role: "assistant",
@@ -17,7 +18,12 @@ interface DisplayMessage extends ChatMessage {
   products?: Product[];
 }
 
+/** Bulle d'assistance : rendue seulement si `FEATURES.supportChat` est actif. */
 export function SupportChatWidget() {
+  return FEATURES.supportChat ? <SupportChatPanel /> : null;
+}
+
+function SupportChatPanel() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<DisplayMessage[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
