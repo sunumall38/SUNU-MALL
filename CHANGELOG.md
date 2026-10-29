@@ -40,6 +40,12 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
   départagés (la position affichée pouvait être l'avant-dernière).
 
 ### Sécurité
+- Pillow 10.3 → 13.0 (66 failles connues sur le traitement des images
+  envoyées : photos de produits, pièces d'identité) et Django REST Framework
+  3.16 → 3.18.3 (contournement de la taille maximale des requêtes, déni de
+  service par l'en-tête Accept) : `pip-audit` ne signale plus rien.
+- Partenaire suspendu en lecture seule : plus de modification de ses
+  réglages ni de son compte de versement.
 - Mot de passe provisoire (livreurs, partenaires) : son changement est imposé
   par l'API elle-même, plus seulement par l'interface ; avant, le compte
   restait utilisable avec le mot de passe provisoire.
@@ -55,6 +61,8 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
   d'envoi d'une facture ensuite annulée.
 
 ### Interne
+- Documentation OpenAPI : les classes d'authentification du projet sont
+  reconnues (Swagger garde l'authentification Bearer).
 - CI backend : lint ruff, contrôle des migrations manquantes, `pytest` (qui
   exécute aussi `backend/tests/`).
 
