@@ -1,7 +1,6 @@
 from decimal import Decimal
 
 from django.db import models as db_models
-from django.db.models import Q
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -10,7 +9,7 @@ from rest_framework.response import Response
 from apps.users.models import Role
 from apps.users.permissions import IsAdmin
 
-from .models import CommissionTransaction, Payout, SellerWallet, WalletTransaction
+from .models import CommissionTransaction, Payout, WalletTransaction
 from .serializers import (
     CommissionTransactionSerializer, PayoutSerializer, WalletSerializer, WalletTransactionSerializer,
 )
@@ -94,7 +93,7 @@ class CommissionTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     def stats(self, request):
         """Statistiques de commissions (§25) : totaux, aujourd'hui, mois, par plan."""
         from django.utils import timezone
-        from django.db.models import Sum, Count
+        from django.db.models import Count
         from .models import PlatformWallet
 
         today = timezone.now().date()

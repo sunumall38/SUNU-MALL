@@ -7,7 +7,6 @@ from decimal import Decimal
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -17,7 +16,7 @@ from apps.users.models import User, Role, UserRole
 from apps.catalog.models import Store
 from apps.orders.geoutils import compute_eta_seconds, point_in_polygon
 from apps.orders.models import (
-    Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryTracking,
+    Address, Delivery, DeliveryPartner, DeliveryTracking,
     DeliveryZone, Driver, GlobalOrder, Order, PartnerInvoice, PartnerZonePricing,
 )
 from apps.orders.pricing import best_delivery_partner, compute_delivery_fee

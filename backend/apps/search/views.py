@@ -106,7 +106,7 @@ def _payment_results(query):
             "type": "payments",
             "label": f"Paiement {p.get_method_display()} — {p.amount} FCFA",
             "subtitle": f"Statut : {p.status}",
-            "to": f"/admin-payments",
+            "to": "/admin-payments",
         }
         for p in payments
     ]

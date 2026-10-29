@@ -496,7 +496,7 @@ class KYCAdminWorkflowTests(TestCase):
         self.assertIsInstance(response.data["fraud_flags"], list)
 
     def test_own_dossier_never_leaks_history_or_fraud_flags(self):
-        kyc = self._kyc()
+        self._kyc()
         self.client.force_authenticate(self.merchant)
         response = self.client.get("/api/kyc/seller-kyc/me/")
         self.assertEqual(response.status_code, 200)
@@ -552,7 +552,7 @@ class KYCReusedDocumentTests(TestCase):
         self.assertIn("phone_reused", flags)
 
     def test_own_dossier_merchant_sees_no_flags(self):
-        kyc = SellerKYC.objects.create(
+        SellerKYC.objects.create(
             seller=self.merchant_a, document_type="cni",
             document_front="kyc/sellers/1/f.jpg", document_back="kyc/sellers/1/b.jpg",
             status=SellerKYC.Status.VERIFIED,

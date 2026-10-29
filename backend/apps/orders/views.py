@@ -17,9 +17,9 @@ from rest_framework.views import APIView
 from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import delivery_tour_started
 from .models import (
-    Address, Delivery, DeliveryEvent, DeliveryPartner, DeliveryPickup,
-    DeliveryPricingRule, DeliveryTracking, Driver, GlobalOrder, Order,
-    OrderItem, PartnerInvoice, PartnerZonePricing,
+    Address, Delivery, DeliveryPartner, DeliveryPickup,
+    DeliveryPricingRule, Driver, GlobalOrder, Order,
+    OrderItem, PartnerInvoice,
 )
 from .pricing import (
     best_delivery_partner, compute_delivery_fee, compute_delivery_fee_multi,
@@ -28,7 +28,7 @@ from .pricing import (
 from .realtime import release_stream_slot, subscribe_delivery_events, try_open_stream_slot
 from .serializers import (
     AddressSerializer, CheckoutSerializer, DeliveryCalculateSerializer,
-    DeliveryPickupSerializer, DeliveryPricingRuleSerializer, DeliveryQuoteSerializer,
+    DeliveryPricingRuleSerializer, DeliveryQuoteSerializer,
     DeliverySerializer, DeliveryTrackingSerializer, DriverSerializer,
     GlobalOrderSerializer, OrderSerializer, DeliveryEventSerializer,
     DeliveryPartnerSerializer, DeliveryPartnerDetailSerializer,
@@ -1437,7 +1437,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
 
     def banks(self, request):
         """Moyens de paiement du partenaire (affichage) — complétion §12 monétique."""
-        partner = self._partner(request)
+        self._partner(request)  # réservé aux partenaires
         return Response({"method": "bank_transfer", "iban": "", "provider": ""})
 
     def stats(self, request):

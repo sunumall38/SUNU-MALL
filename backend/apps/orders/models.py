@@ -11,7 +11,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -517,7 +517,6 @@ class Delivery(models.Model):
         Chaque événement enregistre l'acteur, son rôle, l'action, l'ancienne et
         la nouvelle valeur, le commentaire et une référence (la livraison).
         """
-        from apps.users.models import Role
 
         if not actor_role and user and user.is_authenticated:
             first_role = user.user_roles.select_related("role").first()
@@ -770,7 +769,6 @@ class Delivery(models.Model):
             raise PermissionError("Seul le livreur affecté peut refuser cette mission.")
         self.refuse_reason = reason
         self.failure_comment = comment or self.failure_comment
-        driver = self.driver
         old_status = self.status
         self.driver = None
         self.status = self.Status.ASSIGNED
@@ -827,18 +825,6 @@ class Delivery(models.Model):
         self._transition_to(self.Status.RETURNED, user=user, actor_role=actor_role,
                             comment=comment or "Colis retourné au vendeur.")
         self.broadcast_status("Le colis a été retourné au vendeur.")
-
-    def cancel(self, user=None, comment=""):
-        """Annule la course (appelé quand le client annule sa commande) et prévient le livreur s'il en avait déjà un."""
-        had_driver = self.driver_id is not None
-        parent = None
-        if self.status != self.Status.CANCELLED:
-            parent = self._transition_to(self.Status.CANCELLED, user=user, actor_role="admin",
-                                         comment=comment or "Annulation")
-        self.broadcast_status("La livraison de votre commande a été annulée.")
-        if had_driver:
-            self._notify_driver_cancelled()
-        return parent
 
     def generate_confirmation_otp(self):
         """Génère un code de confirmation à 6 chiffres pour la remise au client.

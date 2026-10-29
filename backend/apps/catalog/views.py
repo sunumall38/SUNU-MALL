@@ -14,7 +14,7 @@ from .serializers import (
     ReviewSerializer, StoreCategorySerializer, StoreSerializer, StoreSettingsSerializer,
 )
 from apps.users.permissions import IsAdmin, IsStoreOwnerOrAdmin
-from apps.monetization.models import Notification, Subscription, SubscriptionPlan, SponsoredProduct
+from apps.monetization.models import Notification, SponsoredProduct
 from apps.kyc.models import SellerKYC
 from apps.kyc.utils import seller_account_active
 from apps.monetization import services as monetization_services
@@ -32,8 +32,6 @@ def _active_product_limit(store):
 
 
 def _check_product_limit(store, exclude_product_id=None):
-    from rest_framework.exceptions import ValidationError
-
     limit = _active_product_limit(store)
     if limit is None:
         return

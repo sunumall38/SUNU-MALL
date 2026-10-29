@@ -19,7 +19,6 @@ import random
 import uuid
 from datetime import timedelta
 from io import BytesIO
-from pathlib import Path, PurePosixPath
 
 from django.contrib.auth.hashers import make_password
 from django.core.files.base import ContentFile

@@ -571,7 +571,6 @@ class KycGatingTests(MonetizationTestCase):
 
 class NotificationBroadcastTests(MonetizationTestCase):
     def test_admin_broadcasts_to_all_and_logs(self):
-        from apps.monetization.models import Notification
         from apps.security.models import AdminAuditLog
 
         admin = self.create_user("admin@example.com", Role.RoleName.ADMIN)
@@ -592,7 +591,6 @@ class NotificationBroadcastTests(MonetizationTestCase):
         ).exists())
 
     def test_broadcast_scoped_to_role(self):
-        from apps.monetization.models import Notification
 
         admin = self.create_user("admin@example.com", Role.RoleName.ADMIN)
         self.client.force_authenticate(admin)

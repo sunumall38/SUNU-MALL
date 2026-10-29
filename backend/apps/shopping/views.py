@@ -60,8 +60,10 @@ class CartViewSet(viewsets.ViewSet):
         else:
             quantity = request.data.get("quantity")
             if quantity is not None:
-                item.quantity = _parse_quantity(quantity)
-                item.save()
+                try:
+                    cart.set_item_quantity(item, _parse_quantity(quantity))
+                except ValueError as exc:
+                    raise ValidationError(str(exc))
         return Response(CartSerializer(cart).data)
 
     @action(detail=False, methods=["post"], url_path="clear")
