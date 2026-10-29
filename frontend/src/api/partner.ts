@@ -40,7 +40,8 @@ export function listPartnerZones() {
   return apiGet<PartnerZonePricing[]>("/orders/partner/zones/");
 }
 
-export function updatePartnerZone(id: string, payload: Partial<Pick<PartnerZonePricing, "client_fee" | "partner_cost" | "estimated_delay_minutes" | "max_weight_kg" | "is_available">>) {
+/** Les prix (tarif client, coût partenaire) sont fixés par l'administration : le partenaire ajuste uniquement délai, poids max et disponibilité. */
+export function updatePartnerZone(id: string, payload: Partial<Pick<PartnerZonePricing, "estimated_delay_minutes" | "max_weight_kg" | "is_available">>) {
   return apiPatch<PartnerZonePricing>(`/orders/partner/zones/${id}/`, payload);
 }
 

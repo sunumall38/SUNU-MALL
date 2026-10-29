@@ -538,6 +538,13 @@ class Delivery(models.Model):
             return
         old = self.status
         self.partner = partner
+        # Le coût partenaire et la marge sont figés à l'affectation : une
+        # modification ultérieure du tarif de zone ne touche que les
+        # nouvelles courses, jamais celles déjà attribuées.
+        if partner:
+            self.partner_cost = partner.partner_cost_for(self)
+            client_fee = self.total_delivery_fee or (self.order.delivery_fee if self.order_id else Decimal("0"))
+            self.platform_margin = client_fee - self.partner_cost
         self.status = self.Status.ASSIGNED
         self.assigned_at = timezone.now()
         self.save()

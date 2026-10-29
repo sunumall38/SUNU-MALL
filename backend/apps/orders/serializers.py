@@ -177,6 +177,17 @@ class DeliveryPartnerSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "score", "created_at", "updated_at"]
 
 
+class PartnerProfileUpdateSerializer(DeliveryPartnerSerializer):
+    """Profil modifiable par le partenaire lui-même : coordonnées uniquement.
+
+    Le nom de l'entreprise, le statut (activation/suspension) et le score
+    restent réservés à l'administration.
+    """
+
+    class Meta(DeliveryPartnerSerializer.Meta):
+        read_only_fields = ["id", "name", "status", "score", "created_at", "updated_at"]
+
+
 class DeliveryPartnerDetailSerializer(DeliveryPartnerSerializer):
     drivers_count = serializers.SerializerMethodField()
     deliveries_count = serializers.SerializerMethodField()
@@ -227,6 +238,18 @@ class PartnerZonePricingSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "zone_name", "margin"]
         extra_kwargs = {"partner": {"read_only": True}}
+
+
+class PartnerZoneUpdateSerializer(PartnerZonePricingSerializer):
+    """Ajustements opérationnels ouverts au partenaire sur ses zones.
+
+    Les prix (tarif client, coût partenaire) et la zone elle-même sont fixés
+    par l'administration : un partenaire ne peut pas fixer sa propre
+    rémunération ni la marge Sunu Mall.
+    """
+
+    class Meta(PartnerZonePricingSerializer.Meta):
+        read_only_fields = ["id", "zone", "zone_name", "client_fee", "partner_cost", "margin"]
 
 
 class PartnerInvoiceSerializer(serializers.ModelSerializer):

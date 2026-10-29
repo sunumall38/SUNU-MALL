@@ -735,6 +735,20 @@ class PartnerSelectionTests(TestCase):
         self.assertRegex(delivery.reference, r"^DLV-\d{8}-\d{6}$")
         self.assertEqual(delivery.events.filter(action="pending→assigned").count(), 1)
 
+    def test_assign_partner_freezes_cost_and_margin(self):
+        partner = self._partner("CityCourier", fee=Decimal("1200"), cost=Decimal("800"))
+        order = Order.objects.create(
+            customer=self.customer, store=self.store, address=self.address,
+            delivery_fee=Decimal("1200"), total_amount=2000,
+        )
+        delivery = Delivery.objects.create(order=order)
+        delivery.assign_partner(partner)
+        # Une hausse ultérieure du tarif ne s'applique pas aux courses déjà attribuées.
+        PartnerZonePricing.objects.filter(partner=partner).update(partner_cost=Decimal("5000"))
+        delivery.refresh_from_db()
+        self.assertEqual(delivery.partner_cost, Decimal("800"))
+        self.assertEqual(delivery.platform_margin, Decimal("400"))
+
     def test_invoice_next_reference_and_balance(self):
         partner = self._partner("CityCourier")
         invoice = PartnerInvoice.objects.create(
@@ -985,6 +999,48 @@ class PartnerSpaceApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 1)
         self.assertEqual(float(response.data[0]["client_fee"]), 1200.0)
+
+    def test_partner_cannot_reactivate_itself(self):
+        self.partner.status = DeliveryPartner.Status.SUSPENDED
+        self.partner.save()
+        self._as(self.partner_user)
+        response = self.client.patch(
+            "/api/orders/partner/profile/",
+            {"status": "active", "name": "Renamed", "contact_name": "Moussa"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
+        self.assertEqual(self.partner.name, "CityCourier")
+        self.assertEqual(self.partner.contact_name, "Moussa")
+
+    def test_partner_cannot_set_its_own_prices(self):
+        pricing = PartnerZonePricing.objects.get(partner=self.partner)
+        other_zone = DeliveryZone.objects.create(name="Thiès")
+        self._as(self.partner_user)
+        response = self.client.patch(
+            f"/api/orders/partner/zones/{pricing.id}/",
+            {
+                "client_fee": "500", "partner_cost": "9000", "zone": str(other_zone.id),
+                "estimated_delay_minutes": 30, "is_available": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        pricing.refresh_from_db()
+        self.assertEqual(pricing.client_fee, Decimal("1200"))
+        self.assertEqual(pricing.partner_cost, Decimal("800"))
+        self.assertEqual(pricing.zone_id, self.zone.id)
+        self.assertEqual(pricing.estimated_delay_minutes, 30)
+        self.assertFalse(pricing.is_available)
+
+    def test_admin_still_suspends_and_activates_partner(self):
+        self._as(self.admin)
+        response = self.client.post(f"/api/orders/partners/{self.partner.id}/suspend/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.partner.refresh_from_db()
+        self.assertEqual(self.partner.status, DeliveryPartner.Status.SUSPENDED)
 
 
 class TrackOrderGuestTests(TestCase):

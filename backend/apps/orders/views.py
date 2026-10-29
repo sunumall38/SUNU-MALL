@@ -33,7 +33,8 @@ from .serializers import (
     DeliverySerializer, DeliveryTrackingSerializer, DriverSerializer,
     GlobalOrderSerializer, OrderSerializer, DeliveryEventSerializer,
     DeliveryPartnerSerializer, DeliveryPartnerDetailSerializer,
-    PartnerInvoiceSerializer, PartnerZonePricingSerializer,
+    PartnerInvoiceSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
+    PartnerZoneUpdateSerializer,
 )
 from apps.catalog.models import Product, ProductVariant, Store
 from apps.payments.models import Payment, Refund
@@ -345,8 +346,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             delivery.total_distance = total_distance
             partner = best_delivery_partner(address)
             if partner is not None:
-                delivery.partner_cost = partner.partner_cost_for(delivery)
-                delivery.platform_margin = delivery_fee - delivery.partner_cost
+                # assign_partner fige partner_cost et platform_margin.
                 delivery.assign_partner(partner)
             else:
                 delivery.platform_margin = delivery_fee
@@ -1432,7 +1432,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     - GET  /api/orders/partner/invoices/       → factures (spec §19-§22)
     - GET  /api/orders/partner/invoices/<pk>/  → détail + délai de paiement
     - GET  /api/orders/partner/zones/          → tarifs par zone
-    - PATCH /api/orders/partner/zones/<pk>/    → ajuster un tarif zone
+    - PATCH /api/orders/partner/zones/<pk>/    → délai, poids max, disponibilité (prix réservés à l'admin)
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -1445,7 +1445,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def profile(self, request):
         partner = self._partner(request)
         if request.method == "PATCH":
-            serializer = DeliveryPartnerSerializer(partner, data=request.data, partial=True)
+            serializer = PartnerProfileUpdateSerializer(partner, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(DeliveryPartnerDetailSerializer(partner).data)
@@ -1477,8 +1477,13 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
             ]
         )
         month_deliveries = deliveries.filter(created_at__date__gte=month_start)
+        # Coût figé à l'affectation ; recalcul uniquement pour les courses
+        # antérieures à ce gel (partner_cost resté à 0).
         total_revenue = sum(
-            (d.partner_cost_for(d) for d in deliveries.filter(status=Delivery.Status.DELIVERED)),
+            (
+                d.partner_cost or partner.partner_cost_for(d)
+                for d in deliveries.filter(status=Delivery.Status.DELIVERED)
+            ),
             Decimal("0"),
         )
         unpaid_amount = sum(
@@ -1529,7 +1534,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def zone_update(self, request, pk=None):
         partner = self._partner(request)
         zp = get_object_or_404(partner.zone_pricings, pk=pk)
-        serializer = PartnerZonePricingSerializer(zp, data=request.data, partial=True)
+        serializer = PartnerZoneUpdateSerializer(zp, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
