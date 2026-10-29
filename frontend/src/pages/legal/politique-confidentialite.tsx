@@ -112,7 +112,7 @@ export default function PolitiqueConfidentialitePage() {
               />
               <p>
                 Pour exercer ces droits, écrivez-nous à{" "}
-                <span className="font-medium text-orange">support@sunumall.com</span> ou par courrier (NEJ digital, Sacré-Cœur 3,
+                <span className="font-medium text-orange">sunumall38@gmail.com</span> ou par courrier (NEJ digital, Sacré-Cœur 3,
                 Villa 123, Dakar). Nous répondons sous 30 jours.
               </p>
             </>
@@ -146,7 +146,7 @@ export default function PolitiqueConfidentialitePage() {
           body: (
             <p>
               Pour toute question relative au traitement de vos données personnelles, contactez notre référent :{" "}
-              <span className="font-medium text-orange">dpo@sunumall.com</span>. En cas de désaccord persistant, vous pouvez saisir
+              <span className="font-medium text-orange">sunumall38@gmail.com</span>. En cas de désaccord persistant, vous pouvez saisir
               la Commission des Données Personnelles (CDP du Sénégal).
             </p>
           ),

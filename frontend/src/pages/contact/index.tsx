@@ -7,8 +7,8 @@ import { apiErrorMessage } from "@/lib/api";
 import { sendContactMessage } from "@/api/complaints";
 
 const CONTACT_CARDS = [
-  { icon: Phone, title: "Téléphone", lines: ["+221 33 860 00 00", "+221 77 860 00 00"], href: "tel:+221338600000" },
-  { icon: Mail, title: "Email", lines: ["support@sunumall.com", "partenariats@sunumall.com"], href: "mailto:support@sunumall.com" },
+  { icon: Phone, title: "Téléphone", lines: ["+221 76 187 27 73"], href: "tel:+221761872773" },
+  { icon: Mail, title: "Email", lines: ["sunumall38@gmail.com"], href: "mailto:sunumall38@gmail.com" },
   { icon: MapPin, title: "Adresse", lines: ["Sacré-Cœur 3, Villa 123", "Dakar, Sénégal"] },
   { icon: Clock, title: "Horaires", lines: ["Lun – Sam : 8h à 20h", "Dimanche : 9h à 13h"] },
 ];
@@ -56,7 +56,7 @@ export default function ContactPage() {
     } catch (err) {
       setError(
         apiErrorMessage(err, "Envoi impossible pour le moment.") +
-          " Vous pouvez aussi nous écrire à support@sunumall.com.",
+          " Vous pouvez aussi nous écrire à sunumall38@gmail.com.",
       );
     } finally {
       setSending(false);
