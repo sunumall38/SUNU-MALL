@@ -100,7 +100,7 @@ export default function ConditionsUtilisationPage() {
           body: (
             <p>
               Les présentes conditions sont soumises au droit sénégalais. En cas de désaccord, nous vous invitons à contacter notre
-              service client (<span className="font-medium text-orange">support@sunumall.com</span>). À défaut de résolution
+              service client (<span className="font-medium text-orange">sunumall38@gmail.com</span>). À défaut de résolution
               amiable, les tribunaux de Dakar sont seuls compétents.
             </p>
           ),

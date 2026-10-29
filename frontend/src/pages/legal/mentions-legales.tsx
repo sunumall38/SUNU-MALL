@@ -20,12 +20,12 @@ export default function MentionsLegalesPage() {
                 ordered
                 items={[
                   <>
-                    Siège social : Sacré-Cœur 3, Villa 123, Dakar, Sénégal.
+                    Siège social : Liberté 6 Extension, Villa n° 144, VDN, Dakar, Sénégal.
                   </>,
                   <>
-                    Adresse email : <span className="font-medium text-orange">support@sunumall.com</span>
+                    Adresse email : <span className="font-medium text-orange">sunumall38@gmail.com</span>
                   </>,
-                  <>Téléphone : +221 33 860 00 00 / +221 77 860 00 00</>,
+                  <>Téléphone : +221 76 187 27 73</>,
                 ]}
               />
             </>
@@ -36,7 +36,7 @@ export default function MentionsLegalesPage() {
           body: (
             <p>
               Le directeur de la publication est le président de <strong>NEJ digital</strong>. Il est joignable à l'adresse
-              électronique <span className="font-medium text-orange">partenariats@sunumall.com</span> pour toute demande
+              électronique <span className="font-medium text-orange">sunumall38@gmail.com</span> pour toute demande
               relative au contenu publié sur la plateforme.
             </p>
           ),
