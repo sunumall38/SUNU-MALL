@@ -7,7 +7,7 @@ Le dépôt configure deux accès MCP dans [`.codex/config.toml`](../.codex/confi
 - `sentry` permet d'inspecter les erreurs, traces et projets Sentry autorisés.
 
 Ces connexions sont des outils locaux pour les développeurs. Elles ne sont ni
-des services de l'application, ni des composants à créer dans Railway. Elles ne
+des services de l'application, ni des composants à déployer sur Render. Elles ne
 modifient pas le frontend.
 
 ## CodeRabbit
@@ -64,7 +64,7 @@ qui ne sont pas déclarés en lecture seule par le serveur.
 
 Le MCP Sentry donne à Codex accès à un projet Sentry existant ; il n'envoie pas
 à lui seul les erreurs Django vers Sentry. L'instrumentation de l'application
-avec le SDK Python et un DSN Railway constitue une évolution séparée.
+avec le SDK Python et un DSN configuré sur Render constitue une évolution séparée.
 
 ## Vérification
 

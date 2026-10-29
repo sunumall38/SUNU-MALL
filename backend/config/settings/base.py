@@ -92,8 +92,8 @@ DATABASES = {
     }
 }
 
-# Railway fournit une URL de connexion complète lorsque le service PostgreSQL
-# est lié au backend. Elle prend la priorité sur les variables POSTGRES_*
+# L'hébergeur (Neon en production) fournit une URL de connexion complète.
+# Elle prend la priorité sur les variables POSTGRES_*
 # utilisées par Docker Compose, qui restent disponibles pour le développement.
 DATABASE_URL = config("DATABASE_URL", default="")
 if DATABASE_URL:
@@ -376,9 +376,9 @@ STATICFILES_DIRS = [BASE_DIR / "static"]
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Email transactionnel. Railway bloque SMTP sur ses offres Free/Trial/Hobby ;
-# Resend passe par HTTPS et fonctionne donc sur toutes les offres. Le mode
-# SMTP reste disponible pour les autres hébergeurs et les comptes Railway Pro.
+# Email transactionnel. Render bloque le SMTP sortant sur son offre gratuite :
+# la production passe par l'API Gmail (HTTPS). Resend (HTTPS aussi) et SMTP
+# restent disponibles pour d'autres hébergeurs.
 EMAIL_PROVIDER = config("EMAIL_PROVIDER", default="").strip().lower()
 RESEND_API_KEY = config("RESEND_API_KEY", default="")
 

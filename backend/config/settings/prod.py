@@ -32,7 +32,7 @@ ALLOWED_HOSTS = DJANGO_ALLOWED_HOSTS
 
 # En production, un backend console donnerait l'illusion que les emails sont
 # partis alors qu'ils ne quittent jamais le conteneur. On échoue tôt avec un
-# message exploitable dans les logs Railway.
+# message exploitable dans les logs du service.
 if EMAIL_PROVIDER == "resend" and not RESEND_API_KEY:
     raise ImproperlyConfigured(
         "RESEND_API_KEY est obligatoire quand EMAIL_PROVIDER=resend."

@@ -1,5 +1,5 @@
 # Outils de développement locaux : ces serveurs ne font pas partie de la
-# stack applicative et ne doivent pas être déployés sur Railway.
+# stack applicative et ne doivent pas être déployés en production.
 
 # CodeRabbit ne publie pas de serveur MCP officiel. Le serveur MCP officiel
 # de GitHub, limité aux pull requests et à la lecture, permet à Codex de lire

@@ -15,4 +15,4 @@ python manage.py bootstrap_admin || echo "bootstrap_admin a échoué (ignoré)" 
 python manage.py run_daily_tasks --if-due || echo "run_daily_tasks a échoué (ignoré)" >&2
 
 # 3. Serveur web (gunicorn), qui remplace ce processus.
-exec /app/railway-entrypoint.sh
+exec /app/entrypoint.sh

@@ -1,7 +1,0 @@
-{
-  "name": "sunu-mall-infrastructure",
-  "private": true,
-  "devDependencies": {
-    "railway": "3.11.0"
-  }
-}
