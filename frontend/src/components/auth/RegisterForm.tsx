@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CheckCircle2, Lock, Mail, MessageSquareText, Phone, ShieldCheck, TriangleAlert, User } from "lucide-react";
 import { Input } from "@/components/ui/Input";
+import { normalizeSenegalPhone, SENEGAL_PHONE_ERROR, SENEGAL_PHONE_EXAMPLE } from "@/lib/phone";
 import { Button } from "@/components/ui/Button";
 import { ApiError, apiErrorMessage } from "@/lib/api";
 import * as authApi from "@/api/auth";
@@ -12,7 +13,7 @@ const schema = z.object({
   first_name: z.string().min(1, "Prénom requis"),
   last_name: z.string().min(1, "Nom requis"),
   email: z.string().email("Email invalide"),
-  phone: z.string().min(6, "Numéro de téléphone requis"),
+  phone: z.string().refine((v) => normalizeSenegalPhone(v) !== null, SENEGAL_PHONE_ERROR),
   password: z.string().min(8, "8 caractères minimum"),
   verification_channel: z.enum(["sms", "email"]),
 });
@@ -54,7 +55,11 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
   async function onSubmit(values: FormValues) {
     setServerError(null);
     try {
-      const response = await authApi.register({ ...values, role_name: role });
+      const response = await authApi.register({
+        ...values,
+        phone: normalizeSenegalPhone(values.phone) ?? values.phone,
+        role_name: role,
+      });
       if (response.verification_channel === "sms" && response.phone_verification_token) {
         setPhoneToken(response.phone_verification_token);
       } else {
@@ -158,7 +163,18 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
         <Input label="Nom" icon={User} {...register("last_name")} error={errors.last_name?.message} />
       </div>
       <Input label="Email" type="email" icon={Mail} {...register("email")} error={errors.email?.message} />
-      <Input label="Téléphone" icon={Phone} {...register("phone")} error={errors.phone?.message} />
+      <Input
+        label="Téléphone"
+        type="tel"
+        autoComplete="tel-national"
+        inputMode="tel"
+        placeholder={SENEGAL_PHONE_EXAMPLE}
+        icon={Phone}
+        prefix="+221"
+        hint="Il vous servira à vous connecter."
+        {...register("phone")}
+        error={errors.phone?.message}
+      />
       <Input label="Mot de passe" type="password" icon={Lock} {...register("password")} error={errors.password?.message} />
 
       {smsAvailable && (
