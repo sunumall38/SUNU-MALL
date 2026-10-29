@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useRecentlyViewedStore } from "@/store/recentlyViewedStore";
 import { useAuthStore } from "@/store/authStore";
 import { roleHomePath } from "@/lib/roles";
+import { FEATURES } from "@/lib/features";
 import type { Product } from "@/types";
 
 const WHY_ITEMS = [
@@ -155,7 +156,7 @@ export default function HomePage() {
             <HeroSlideshow
               images={[
                 { src: "/hero-shopper.jpg", alt: "Cliente Sunu Mall avec ses achats" },
-                { src: "/live-shopping.jpg", alt: "Vente en direct sur Sunu Mall" },
+                ...(FEATURES.liveSales ? [{ src: "/live-shopping.jpg", alt: "Vente en direct sur Sunu Mall" }] : []),
                 { src: "/merchant-store.jpg", alt: "Commerçant conseillant une cliente" },
                 { src: "/order-handoff.jpg", alt: "Remise de commande Sunu Mall" },
               ]}

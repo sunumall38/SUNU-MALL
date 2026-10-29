@@ -2,8 +2,9 @@ import { BarChart3, Headset, LayoutDashboard, Megaphone, Package, PlusCircle, Ra
 import { RoleGuard } from "@/components/auth/RoleGuard";
 import { MerchantKycGate } from "@/components/kyc/MerchantKycGate";
 import type { DashboardNavItem } from "@/components/layout/DashboardShell";
+import { FEATURES } from "@/lib/features";
 
-const nav: DashboardNavItem[] = [
+const allNav: DashboardNavItem[] = [
   { to: "/merchant", label: "Tableau de bord", icon: <LayoutDashboard className="h-4 w-4" /> },
   { to: "/create-shop", label: "Ma boutique", icon: <StoreIcon className="h-4 w-4" /> },
   { to: "/store-settings", label: "Paramètres", icon: <Settings className="h-4 w-4" /> },
@@ -17,6 +18,8 @@ const nav: DashboardNavItem[] = [
   { to: "/merchant-wallet", label: "Portefeuille", icon: <Wallet className="h-4 w-4" /> },
   { to: "/support", label: "Support", icon: <Headset className="h-4 w-4" /> },
 ];
+
+const nav = allNav.filter((item) => FEATURES.liveSales || item.to !== "/live-sales");
 
 export function MerchantLayout() {
   return (

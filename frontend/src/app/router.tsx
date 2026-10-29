@@ -10,6 +10,7 @@ import { PartnerLayout } from "@/components/layout/PartnerLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { KycSessionWatcher } from "@/components/auth/KycSessionWatcher";
 import { Spinner } from "@/components/ui/Spinner";
+import { FEATURES } from "@/lib/features";
 
 
 
@@ -122,7 +123,9 @@ export const router = createBrowserRouter([
       { path: "/promotions", lazy: page(() => import("@/pages/promotions")) },
       { path: "/support", lazy: page(() => import("@/pages/support")) },
       { path: "/analytics", lazy: page(() => import("@/pages/analytics")) },
-      { path: "/live-sales", lazy: page(() => import("@/pages/live-sales")) },
+      FEATURES.liveSales
+        ? { path: "/live-sales", lazy: page(() => import("@/pages/live-sales")) }
+        : { path: "/live-sales", element: <Navigate to="/merchant" replace /> },
       { path: "/order-detail", lazy: page(() => import("@/pages/order-detail")) },
       { path: "/merchant-wallet", lazy: page(() => import("@/pages/seller-wallet")) },
       { path: "/merchant-payouts", lazy: page(() => import("@/pages/seller-payouts")) },
