@@ -1,0 +1,139 @@
+"""Facturation mensuelle des partenaires (coût fixe par zone, sans commission)."""
+from datetime import date, datetime, time
+from decimal import Decimal
+
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.catalog.models import Store
+from apps.monetization.models import Notification
+from apps.orders.invoicing import generate_partner_invoices, previous_month
+from apps.orders.models import (
+    Address, Delivery, DeliveryPartner, Order, PartnerInvoice, PartnerZonePricing,
+)
+from apps.orders.tests import _dakar_zone
+from apps.users.models import Role, User, UserRole
+
+TODAY = date(2026, 11, 2)
+
+
+def _at(day):
+    return timezone.make_aware(datetime.combine(day, time(12, 0)))
+
+
+class PartnerInvoicingTests(TestCase):
+    def setUp(self):
+        for role_name in (Role.RoleName.PARTNER, Role.RoleName.CLIENT, Role.RoleName.MERCHANT, Role.RoleName.ADMIN):
+            Role.objects.get_or_create(name=role_name)
+        self.zone = _dakar_zone()
+        self.admin = User.objects.create_user(username="admin@ex.com", email="admin@ex.com", password="x")
+        UserRole.objects.create(user=self.admin, role=Role.objects.get(name=Role.RoleName.ADMIN))
+        self.partner_user = User.objects.create_user(username="p@ex.com", email="p@ex.com", password="x")
+        UserRole.objects.create(user=self.partner_user, role=Role.objects.get(name=Role.RoleName.PARTNER))
+        self.partner = DeliveryPartner.objects.create(
+            name="CityCourier", status=DeliveryPartner.Status.ACTIVE, user=self.partner_user,
+        )
+        PartnerZonePricing.objects.create(
+            partner=self.partner, zone=self.zone, client_fee=Decimal("1200"), partner_cost=Decimal("800"),
+        )
+        self.other_partner = DeliveryPartner.objects.create(name="Other", status=DeliveryPartner.Status.ACTIVE)
+        merchant = User.objects.create_user(username="m@ex.com", email="m@ex.com", password="x")
+        self.store = Store.objects.create(owner=merchant, name="Boutique")
+        self.customer = User.objects.create_user(username="c@ex.com", email="c@ex.com", password="x")
+        self.address = Address.objects.create(
+            user=self.customer, label="Maison", latitude=Decimal("14.715000"), longitude=Decimal("-17.465000"),
+        )
+
+    def _delivery(self, delivered_on=None, partner=None, cost=Decimal("800"), status_=Delivery.Status.DELIVERED):
+        order = Order.objects.create(customer=self.customer, store=self.store, address=self.address, total_amount=5000)
+        return Delivery.objects.create(
+            order=order, partner=partner or self.partner, partner_cost=cost, status=status_,
+            delivered_at=_at(delivered_on) if delivered_on else None,
+        )
+
+    def test_previous_month_bounds(self):
+        self.assertEqual(previous_month(TODAY), (date(2026, 10, 1), date(2026, 10, 31)))
+        self.assertEqual(previous_month(date(2026, 1, 15)), (date(2025, 12, 1), date(2025, 12, 31)))
+
+    def test_invoice_sums_frozen_partner_costs_of_last_month(self):
+        d1 = self._delivery(date(2026, 10, 3))
+        d2 = self._delivery(date(2026, 10, 31), cost=Decimal("1500"))
+        current_month = self._delivery(date(2026, 11, 1))
+        in_progress = self._delivery(None, status_=Delivery.Status.IN_TRANSIT)
+        self._delivery(date(2026, 10, 10), partner=self.other_partner)
+
+        created = generate_partner_invoices(today=TODAY)
+
+        self.assertEqual(len(created), 2)
+        invoice = PartnerInvoice.objects.get(partner=self.partner)
+        self.assertEqual(invoice.status, PartnerInvoice.Status.PENDING)
+        self.assertEqual((invoice.period_start, invoice.period_end), (date(2026, 10, 1), date(2026, 10, 31)))
+        self.assertEqual(invoice.marketplace_deliveries_count, 2)
+        self.assertEqual(invoice.total_due, Decimal("2300"))
+        self.assertEqual(invoice.collection_fees, Decimal("0"))
+        self.assertEqual(invoice.balance, Decimal("2300"))
+        self.assertEqual(invoice.due_date, date(2026, 11, 17))
+        self.assertEqual(set(invoice.deliveries.values_list("id", flat=True)), {d1.id, d2.id})
+        current_month.refresh_from_db()
+        in_progress.refresh_from_db()
+        self.assertIsNone(current_month.invoice_id)
+        self.assertIsNone(in_progress.invoice_id)
+        self.assertTrue(
+            Notification.objects.filter(user=self.partner_user, metadata__kind="partner_invoice").exists()
+        )
+
+    def test_generation_is_idempotent_and_catches_up_late_deliveries(self):
+        self._delivery(date(2026, 10, 3))
+        generate_partner_invoices(today=TODAY)
+        self.assertEqual(generate_partner_invoices(today=TODAY), [])
+        self.assertEqual(PartnerInvoice.objects.count(), 1)
+        # Course d'octobre enregistrée en retard : facturée le mois suivant.
+        late = self._delivery(date(2026, 10, 20))
+        generate_partner_invoices(today=date(2026, 12, 1))
+        late.refresh_from_db()
+        self.assertIsNotNone(late.invoice_id)
+        self.assertEqual(late.invoice.period_end, date(2026, 11, 30))
+
+    def test_legacy_delivery_without_frozen_cost_uses_zone_cost(self):
+        legacy = self._delivery(date(2026, 10, 3), cost=Decimal("0"))
+        generate_partner_invoices(today=TODAY)
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.partner_cost, Decimal("800"))
+        self.assertEqual(legacy.invoice.total_due, Decimal("800"))
+
+    def test_admin_lists_and_marks_invoice_paid(self):
+        self._delivery(date(2026, 10, 3))
+        generate_partner_invoices(today=TODAY)
+        invoice = PartnerInvoice.objects.get()
+        client = APIClient()
+        client.force_authenticate(self.admin)
+
+        pending = client.get("/api/orders/partner-invoices/?status=pending")
+        self.assertEqual(pending.status_code, status.HTTP_200_OK)
+        self.assertEqual([i["reference"] for i in pending.data["results"]], [invoice.reference])
+        self.assertEqual(pending.data["results"][0]["partner_name"], "CityCourier")
+
+        paid = client.post(f"/api/orders/partner-invoices/{invoice.id}/mark-paid/")
+        self.assertEqual(paid.status_code, status.HTTP_200_OK, paid.data)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, PartnerInvoice.Status.PAID)
+        self.assertIsNotNone(invoice.paid_at)
+        again = client.post(f"/api/orders/partner-invoices/{invoice.id}/mark-paid/")
+        self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_partner_cannot_use_admin_invoice_api_but_sees_detail(self):
+        delivery = self._delivery(date(2026, 10, 3))
+        generate_partner_invoices(today=TODAY)
+        invoice = PartnerInvoice.objects.get()
+        client = APIClient()
+        client.force_authenticate(self.partner_user)
+        self.assertEqual(client.get("/api/orders/partner-invoices/").status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            client.post(f"/api/orders/partner-invoices/{invoice.id}/mark-paid/").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        detail = client.get(f"/api/orders/partner/invoices/{invoice.id}/")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual([d["id"] for d in detail.data["deliveries"]], [str(delivery.id)])

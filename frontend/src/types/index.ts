@@ -842,8 +842,9 @@ export type PartnerInvoiceStatus = "draft" | "pending" | "paid" | "contested";
 
 /** Facture mensuelle du partenaire (spec §19-§22). */
 export interface PartnerInvoice {
-  id: string;
+  id: number;
   partner: string;
+  partner_name: string;
   reference: string;
   status: PartnerInvoiceStatus;
   period_start: string;
@@ -864,6 +865,11 @@ export interface PartnerInvoice {
   paid_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Facture avec le détail des courses réglées (coût partenaire figé de chacune). */
+export interface PartnerInvoiceDetail extends PartnerInvoice {
+  deliveries: { id: string; reference: string; delivered_at: string | null; partner_cost: string }[];
 }
 
 /** Réponse du tableau de bord partenaire (`/orders/partner/stats/`). */

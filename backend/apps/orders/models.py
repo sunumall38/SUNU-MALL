@@ -456,6 +456,11 @@ class Delivery(models.Model):
         DeliveryPartner, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries'
     )
     driver = models.ForeignKey(Driver, on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries')
+    # Facture partenaire qui règle cette course (une seule) : une course
+    # facturée n'est jamais reprise dans une autre facture.
+    invoice = models.ForeignKey(
+        'PartnerInvoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='deliveries'
+    )
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
     # Horodatage de chaque étape de la timeline (spec §28). `picked_up_at` et
     # `delivered_at` existaient déjà ; on garde ces noms pour la rétrocompat.
@@ -1217,13 +1222,15 @@ class DeliveryEvent(models.Model):
 
 
 class PartnerInvoice(models.Model):
-    """Facture d'un partenaire (spec §19-§22).
+    """Facture mensuelle d'un partenaire : ce que Sunu Mall lui doit.
 
-    Établie sur une période, à partir des livraisons DELIVERED/MARKETPLACE
-    payées à ce partenaire. `total_due` = somme des courses facturables,
-    `collection_fees` = commission prélevée par Sunu Mall, `balance` =
-    montant net à régler. La réconciliation (spec §21) compare le total des
-    course facturables à la période (recompute) au montant retenu.
+    Générée par `apps.orders.invoicing.generate_partner_invoices` à partir des
+    courses livrées et pas encore facturées. Le partenaire est rémunéré au
+    coût fixe de sa zone (`Delivery.partner_cost`, figé à l'attribution) :
+    `total_due` = somme de ces coûts. La marge Sunu Mall est déjà comprise
+    dans l'écart tarif client / coût partenaire, d'où des taux de commission
+    et `collection_fees` à 0 sur les factures générées. `balance` = montant
+    net à verser.
     """
 
     class Status(models.TextChoices):
@@ -1292,9 +1299,9 @@ class PartnerInvoice(models.Model):
 
         self.status = self.Status.PAID
         self.paid_at = timezone.now()
-        self.save()
+        self.save(update_fields=["status", "paid_at", "updated_at"])
         log_security_event(
-            "PARTNER_INVOICE_PAID", device=user, metadata={"invoice": self.reference, "amount": str(self.balance)},
+            user, "PARTNER_INVOICE_PAID", metadata={"invoice": self.reference, "amount": str(self.balance)},
         )
 
     def __str__(self):

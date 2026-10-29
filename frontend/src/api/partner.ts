@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerSpaceStats, PartnerZonePricing } from "@/types";
+import type { Delivery, DeliveryPartner, DeliveryPartnerDetail, Driver, Paginated, PartnerInvoice, PartnerInvoiceDetail, PartnerSpaceStats, PartnerZonePricing } from "@/types";
 
 /** Profil de l'entreprise partenaire (détail + statistiques). */
 export function getPartnerProfile() {
@@ -32,8 +32,8 @@ export function listPartnerInvoices() {
   return apiGet<PartnerInvoice[]>("/orders/partner/invoices/");
 }
 
-export function getPartnerInvoice(id: string) {
-  return apiGet<PartnerInvoice>(`/orders/partner/invoices/${id}/`);
+export function getPartnerInvoice(id: number) {
+  return apiGet<PartnerInvoiceDetail>(`/orders/partner/invoices/${id}/`);
 }
 
 export function listPartnerZones() {

@@ -33,7 +33,7 @@ from .serializers import (
     DeliverySerializer, DeliveryTrackingSerializer, DriverSerializer,
     GlobalOrderSerializer, OrderSerializer, DeliveryEventSerializer,
     DeliveryPartnerSerializer, DeliveryPartnerDetailSerializer,
-    PartnerInvoiceSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
+    PartnerInvoiceDetailSerializer, PartnerInvoiceSerializer, PartnerProfileUpdateSerializer, PartnerZonePricingSerializer,
     PartnerZoneUpdateSerializer,
 )
 from apps.catalog.models import Product, ProductVariant, Store
@@ -1488,6 +1488,39 @@ class PartnerViewSet(viewsets.ModelViewSet):
         return Response({"api_key": raw, "api_key_last4": partner.api_key_last4})
 
 
+class PartnerInvoiceAdminViewSet(viewsets.ReadOnlyModelViewSet):
+    """Factures partenaires côté administration (admin uniquement).
+
+    - GET  /api/orders/partner-invoices/?status=pending  → factures à régler
+    - GET  /api/orders/partner-invoices/<id>/            → détail des courses
+    - POST /api/orders/partner-invoices/<id>/mark-paid/  → virement effectué
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        if not self.request.user.is_admin():
+            raise PermissionDenied("Seul un administrateur gère les factures partenaires.")
+        qs = PartnerInvoice.objects.select_related("partner").order_by("-period_end", "reference")
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+    def get_serializer_class(self):
+        if self.action == "retrieve":
+            return PartnerInvoiceDetailSerializer
+        return PartnerInvoiceSerializer
+
+    @action(detail=True, methods=["post"], url_path="mark-paid")
+    def mark_paid(self, request, pk=None):
+        invoice = self.get_object()
+        if invoice.status == PartnerInvoice.Status.PAID:
+            raise ValidationError("Cette facture est déjà marquée payée.")
+        invoice.mark_paid(user=request.user)
+        return Response(PartnerInvoiceSerializer(invoice).data)
+
+
 class PartnerSpaceViewSet(viewsets.ViewSet):
     """Espace Partenaire : l'utilisateur `partner` pilote son entreprise.
 
@@ -1593,7 +1626,7 @@ class PartnerSpaceViewSet(viewsets.ViewSet):
     def invoice_detail(self, request, pk=None):
         partner = self._partner(request)
         invoice = get_object_or_404(partner.invoices, pk=pk)
-        return Response(PartnerInvoiceSerializer(invoice).data)
+        return Response(PartnerInvoiceDetailSerializer(invoice).data)
 
     def zones(self, request):
         partner = self._partner(request)

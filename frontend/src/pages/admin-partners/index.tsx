@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff, UserPlus } from "lucide-react";
+import { Banknote, Building2, Check, Copy, KeyRound, ShieldCheck, ShieldOff, UserPlus } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as adminPartnersApi from "@/api/admin-partners";
 import { apiErrorMessage } from "@/lib/api";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatPrice } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -24,6 +24,58 @@ const STATUS_VARIANT: Record<PartnerStatus, "success" | "default" | "danger"> = 
   inactive: "default",
   suspended: "danger",
 };
+
+function PendingInvoices() {
+  const { data: invoices, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartnerInvoices("pending"), []);
+  const [payingId, setPayingId] = useState<number | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
+
+  async function markPaid(id: number) {
+    setPayingId(id);
+    setPayError(null);
+    try {
+      await adminPartnersApi.markPartnerInvoicePaid(id);
+      refetch();
+    } catch (err) {
+      setPayError(apiErrorMessage(err, "Impossible de marquer la facture payée."));
+    } finally {
+      setPayingId(null);
+    }
+  }
+
+  if (loading || error || !invoices || invoices.length === 0) return null;
+  const total = invoices.reduce((sum, invoice) => sum + Number(invoice.balance), 0);
+
+  return (
+    <Card className="flex flex-col gap-3 border-orange/30">
+      <p className="flex items-center gap-2 font-semibold text-ink">
+        <Banknote className="h-4 w-4 text-orange" /> Factures à régler · {formatPrice(total)}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Émises automatiquement chaque début de mois. Faites le virement, puis marquez la facture payée.
+      </p>
+      {payError && <p className="rounded-lg border border-danger/30 bg-red-50 px-3 py-2 text-sm text-danger">{payError}</p>}
+      <ul className="flex flex-col divide-y divide-border">
+        {invoices.map((invoice) => (
+          <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="font-semibold text-ink">
+                {invoice.partner_name} · {formatPrice(invoice.balance)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {invoice.reference} · {invoice.marketplace_deliveries_count} livraison(s)
+                {invoice.due_date ? ` · échéance le ${formatDate(invoice.due_date)}` : ""}
+              </p>
+            </div>
+            <Button size="sm" variant="secondary" onClick={() => markPaid(invoice.id)} loading={payingId === invoice.id}>
+              <Check className="h-4 w-4" /> Marquer payée
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
 
 export default function AdminPartnersPage() {
   const { data: partners, loading, error, refetch } = useAsync(() => adminPartnersApi.listAdminPartners(), []);
@@ -130,6 +182,8 @@ export default function AdminPartnersPage() {
         <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-gray-900">
           <Building2 className="h-6 w-6 text-orange" /> Partenaires logistiques
         </h1>
+
+        <PendingInvoices />
 
         {error ? (
           <ErrorState fullPage onRetry={refetch} />

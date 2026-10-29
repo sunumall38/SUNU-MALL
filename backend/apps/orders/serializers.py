@@ -257,10 +257,12 @@ class PartnerZoneUpdateSerializer(PartnerZonePricingSerializer):
 
 
 class PartnerInvoiceSerializer(serializers.ModelSerializer):
+    partner_name = serializers.CharField(source="partner.name", read_only=True)
+
     class Meta:
         model = PartnerInvoice
         fields = [
-            "id", "partner", "reference", "status", "period_start", "period_end",
+            "id", "partner", "partner_name", "reference", "status", "period_start", "period_end",
             "due_date", "marketplace_rate", "on_demand_rate",
             "marketplace_deliveries_count", "on_demand_deliveries_count",
             "marketplace_amount", "on_demand_amount", "collection_fees",
@@ -275,6 +277,22 @@ class PartnerInvoiceSerializer(serializers.ModelSerializer):
             "paid_at", "created_at", "updated_at",
         ]
         extra_kwargs = {"partner": {"read_only": True}}
+
+
+class InvoicedDeliverySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Delivery
+        fields = ["id", "reference", "delivered_at", "partner_cost"]
+        read_only_fields = fields
+
+
+class PartnerInvoiceDetailSerializer(PartnerInvoiceSerializer):
+    """Facture avec le détail des courses réglées, pour vérification."""
+
+    deliveries = InvoicedDeliverySerializer(many=True, read_only=True)
+
+    class Meta(PartnerInvoiceSerializer.Meta):
+        fields = PartnerInvoiceSerializer.Meta.fields + ["deliveries"]
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

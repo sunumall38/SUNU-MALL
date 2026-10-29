@@ -1,5 +1,5 @@
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import type { DeliveryPartner, DeliveryPartnerDetail, Paginated } from "@/types";
+import type { DeliveryPartner, DeliveryPartnerDetail, Paginated, PartnerInvoice } from "@/types";
 
 export async function listAdminPartners(params?: { page?: number }) {
   const qs = params?.page ? `?page=${params.page}` : "";
@@ -46,4 +46,15 @@ export function createAdminPartnerAccount(id: string) {
 /** Régénère la clé d'API — le clair n'est renvoyé qu'une seule fois. */
 export function rotateAdminPartnerApiKey(id: string) {
   return apiPost<{ api_key: string; api_key_last4: string }>(`/orders/partners/${id}/rotate-api-key/`);
+}
+
+/** Factures partenaires (toutes entreprises), filtrables par statut. */
+export async function listAdminPartnerInvoices(status?: "pending" | "paid") {
+  const data = await apiGet<Paginated<PartnerInvoice>>(`/orders/partner-invoices/${status ? `?status=${status}` : ""}`);
+  return data.results;
+}
+
+/** À appeler une fois le virement au partenaire effectué. */
+export function markPartnerInvoicePaid(id: number) {
+  return apiPost<PartnerInvoice>(`/orders/partner-invoices/${id}/mark-paid/`);
 }
