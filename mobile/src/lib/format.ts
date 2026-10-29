@@ -12,3 +12,14 @@ export function mediaUrl(url: string | null | undefined) {
   if (!url) return null;
   return url.startsWith("/") ? `${API_ORIGIN}${url}` : url;
 }
+
+/** « Il y a 2 heures », « Il y a 3 jours ». */
+export function timeAgo(iso: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 1) return "À l'instant";
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `Il y a ${hours} heure${hours > 1 ? "s" : ""}`;
+  const days = Math.round(hours / 24);
+  return `Il y a ${days} jour${days > 1 ? "s" : ""}`;
+}

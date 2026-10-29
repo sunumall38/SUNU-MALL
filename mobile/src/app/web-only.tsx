@@ -18,7 +18,7 @@ function siteSpace(roles: Role[]) {
   return { label: "personnel", path: "/home" };
 }
 
-/** Commerçants, partenaires et admins : leur espace n'existe pas encore dans l'appli. */
+/** Partenaires et admins : leur espace n'existe pas encore dans l'appli. */
 export default function WebOnlyScreen() {
   return (
     <RoleGate href="/web-only">

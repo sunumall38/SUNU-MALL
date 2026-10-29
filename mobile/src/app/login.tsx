@@ -19,32 +19,37 @@ import { colors } from "@/theme";
 export default function LoginScreen() {
   const user = useAuthStore((s) => s.user);
   const loginSuccess = useAuthStore((s) => s.loginSuccess);
+  const [mode, setMode] = useState<"phone" | "email">("phone");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errors, setErrors] = useState<{ phone?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
-  const [unverifiedPhone, setUnverifiedPhone] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState<authApi.LoginIdentifier | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (user) return <LeaveLogin home={roleHomeHref(user)} />;
 
   async function submit() {
     const normalized = normalizeSenegalPhone(phone);
+    const cleanEmail = email.trim().toLowerCase();
+    const identifier: authApi.LoginIdentifier | null =
+      mode === "phone" ? (normalized ? { phone: normalized } : null) : cleanEmail.includes("@") ? { email: cleanEmail } : null;
     const nextErrors = {
-      phone: normalized ? undefined : SENEGAL_PHONE_ERROR,
+      identifier: identifier ? undefined : mode === "phone" ? SENEGAL_PHONE_ERROR : "Adresse email invalide",
       password: password ? undefined : "Mot de passe requis",
     };
     setErrors(nextErrors);
     setServerError(null);
-    setUnverifiedPhone(null);
-    if (!normalized || !password) return;
+    setUnverified(null);
+    if (!identifier || !password) return;
 
     setSubmitting(true);
     try {
       // La redirection vers l'espace du compte se fait au rendu suivant.
-      await loginSuccess(await authApi.login(normalized, password));
+      await loginSuccess(await authApi.login(identifier, password));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403) setUnverifiedPhone(normalized);
+      if (err instanceof ApiError && err.status === 403) setUnverified(identifier);
       else setServerError(err instanceof ApiError ? apiErrorMessage(err, "Identifiants incorrects.") : apiErrorMessage(err));
     } finally {
       setSubmitting(false);
@@ -67,18 +72,43 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.form}>
-            <TextField
-              label="Numéro de téléphone"
-              prefix="+221"
-              placeholder={SENEGAL_PHONE_EXAMPLE}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              textContentType="telephoneNumber"
-              value={phone}
-              onChangeText={setPhone}
-              error={errors.phone}
-              hint="Les 9 chiffres de votre numéro, sans l'indicatif."
-            />
+            {mode === "phone" ? (
+              <TextField
+                label="Numéro de téléphone"
+                prefix="+221"
+                placeholder={SENEGAL_PHONE_EXAMPLE}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                textContentType="telephoneNumber"
+                value={phone}
+                onChangeText={setPhone}
+                error={errors.identifier}
+                hint="Les 9 chiffres de votre numéro, sans l'indicatif."
+              />
+            ) : (
+              <TextField
+                label="Email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                value={email}
+                onChangeText={setEmail}
+                error={errors.identifier}
+              />
+            )}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setMode(mode === "phone" ? "email" : "phone");
+                setErrors({});
+              }}
+              style={styles.switchMode}
+            >
+              <Text style={styles.link}>
+                {mode === "phone" ? "Se connecter avec mon email" : "Se connecter avec mon numéro"}
+              </Text>
+            </Pressable>
             <TextField
               label="Mot de passe"
               secureTextEntry
@@ -95,7 +125,7 @@ export default function LoginScreen() {
             </Pressable>
 
             {serverError ? <Text style={styles.serverError}>{serverError}</Text> : null}
-            {unverifiedPhone ? <ResendVerification phone={unverifiedPhone} /> : null}
+            {unverified ? <ResendVerification identifier={unverified} /> : null}
 
             <Button label="Se connecter" onPress={submit} loading={submitting} />
           </View>
@@ -104,6 +134,9 @@ export default function LoginScreen() {
             <Text style={styles.footerText}>Pas encore de compte ?</Text>
             <Pressable onPress={() => Linking.openURL(`${SITE_URL}/register-client`)}>
               <Text style={styles.link}>Créer un compte sur le site</Text>
+            </Pressable>
+            <Pressable onPress={() => Linking.openURL(`${SITE_URL}/register-merchant`)}>
+              <Text style={styles.link}>Vous vendez ? Créer une boutique</Text>
             </Pressable>
             <Text style={styles.footerNote}>
               Livreurs : connectez-vous avec le numéro et le mot de passe fournis par Sunu Mall ou votre entreprise.
@@ -127,13 +160,13 @@ function LeaveLogin({ home }: { home: ReturnType<typeof roleHomeHref> }) {
   return <LoadingScreen />;
 }
 
-function ResendVerification({ phone }: { phone: string }) {
+function ResendVerification({ identifier }: { identifier: authApi.LoginIdentifier }) {
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
 
   async function resend() {
     setState("sending");
     try {
-      await authApi.resendVerification(phone);
+      await authApi.resendVerification(identifier);
     } finally {
       setState("sent");
     }
@@ -163,6 +196,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, color: colors.mutedForeground },
   form: { gap: 16 },
   forgot: { alignSelf: "flex-end", marginTop: -6 },
+  switchMode: { alignSelf: "flex-start", marginTop: -8 },
   link: { fontSize: 14, fontWeight: "600", color: colors.orange },
   serverError: {
     fontSize: 14,

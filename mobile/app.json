@@ -27,7 +27,14 @@
           "locationWhenInUsePermission": "Sunu Mall utilise votre position pour calculer les frais de livraison et guider le livreur jusqu'à vous."
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Sunu Mall accède à vos photos pour illustrer les produits de votre boutique.",
+          "cameraPermission": "Sunu Mall utilise l'appareil photo pour photographier les produits de votre boutique."
+        }
+      ]
     ],
     "scheme": "sunumall"
   }

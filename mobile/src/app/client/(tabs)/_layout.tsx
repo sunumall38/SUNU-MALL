@@ -1,20 +1,7 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { Tabs } from "expo-router";
+import { tabIcon } from "@/components/TabIcon";
 import { cartItemCount, useCartStore } from "@/store/cart";
 import { colors } from "@/theme";
-
-type IconName = keyof typeof Ionicons.glyphMap;
-
-/** Icône d'onglet : pleine quand l'onglet est actif. La couleur fournie peut être nulle. */
-function tabIcon(active: IconName, inactive: IconName) {
-  return ({ color, size, focused }: { color: unknown; size: number; focused: boolean }) => (
-    <Ionicons
-      name={focused ? active : inactive}
-      size={size}
-      color={typeof color === "string" ? color : colors.mutedForeground}
-    />
-  );
-}
 
 export default function ClientTabsLayout() {
   const count = useCartStore((s) => cartItemCount(s.cart));

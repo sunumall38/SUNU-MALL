@@ -247,3 +247,81 @@ export interface GlobalOrder {
   payment: OrderPayment | null;
   created_at: string;
 }
+
+// --- Espace commerçant ---
+
+export type StoreStatus = "active" | "inactive" | "suspended";
+
+/** Boutique vue par son propriétaire (statut de validation compris). */
+export interface OwnStore extends Store {
+  owner: string;
+  phone: string;
+  status: StoreStatus;
+  rejection_reason: string;
+}
+
+export type KycStatus = "PENDING" | "SUBMITTED" | "UNDER_REVIEW" | "VERIFIED" | "REJECTED" | "SUSPENDED" | "BLOCKED";
+
+export interface SellerKyc {
+  status: KycStatus;
+  rejection_reason: string | null;
+}
+
+/** Abonnement commerçant et quota de produits. */
+export interface SubscriptionState {
+  has_active_subscription: boolean;
+  /** null = illimité, 0 = création bloquée. */
+  product_limit: number | null;
+  product_count: number;
+  products_remaining: number | null;
+  is_unlimited: boolean;
+  subscription: {
+    status: string;
+    plan_name: string;
+    ends_at: string | null;
+    days_left: number | null;
+    in_grace: boolean;
+  } | null;
+}
+
+/** Indicateurs des 30 derniers jours (commandes annulées exclues). */
+export interface StoreSummary {
+  revenue_30d: string;
+  orders_30d: number;
+  avg_order_value_30d: string;
+  delivered_rate: number;
+  avg_rating: number | null;
+  review_count: number;
+}
+
+export interface SalesDay {
+  id: string;
+  date: string;
+  total_sales: string;
+  total_orders: number;
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: "sale" | "refund" | "payout" | "release" | "adjustment";
+  amount: string;
+  description: string;
+  created_at: string;
+}
+
+export interface SellerWallet {
+  wallet: {
+    available_balance: string;
+    pending_balance: string;
+    total_earned: string;
+    total_withdrawn: string;
+  };
+  subscription: { status: string; can_sell: boolean } | null;
+  recent_wallet_transactions: WalletTransaction[];
+}
+
+/** Commande vue par la boutique. */
+export interface MerchantOrder extends Order {
+  store: string;
+  customer_name: string;
+}

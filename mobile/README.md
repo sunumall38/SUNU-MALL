@@ -7,8 +7,9 @@ affiché dépend du rôle, comme sur le site.
 |---|---|
 | Visiteur | Écran d'accueil, puis catalogue, recherche, boutiques et fiches produit sans compte ; connexion demandée pour acheter |
 | Client | Onglets Accueil, Recherche, Panier, Commandes, Profil ; commande et paiement Wave / Orange Money (`src/app/client/`) |
+| Commerçant | Onglets Accueil (tableau de bord), Commandes, Produits (ajout avec photos), Statistiques, Plus (`src/app/merchant/`). Pièces d'identité, création de la boutique, abonnement et retraits restent sur le site |
 | Livreur | Espace livreur (`src/app/driver/`) — provisoire, renvoie vers le site |
-| Commerçant, partenaire, admin | Écran « votre espace est sur le site » |
+| Partenaire, admin | Écran « votre espace est sur le site » |
 | Mot de passe provisoire | Changement obligatoire avant tout (`src/app/change-password.tsx`) |
 
 Le code est rangé par rôle pour pouvoir sortir plus tard une appli séparée
@@ -61,6 +62,7 @@ src/
 │   │   ├── payment/[id].tsx    # Paiement et retour de Wave / Orange Money
 │   │   ├── orders/[id].tsx     # Détail d'une commande
 │   │   └── …                   # Adresses, favoris, notifications, boutiques, catégories
+│   ├── merchant/           # Espace vendeur (maquette « Espace boutique »)
 │   └── driver/             # Espace livreur
 ├── components/     # Logo, boutons, cartes produit, onglets en pastilles…
 ├── lib/            # Client API, téléphone +221, formats, rôles, statuts de commande
@@ -69,8 +71,12 @@ src/
 └── types.ts        # Types de l'API
 ```
 
-Le design suit la maquette « Espace client (application mobile) » ; les
-couleurs sont dans `src/theme.ts`.
+Le design suit les maquettes « Espace client » et « Espace boutique /
+vendeur » ; les couleurs sont dans `src/theme.ts`.
+
+Côté vendeur, le backend ne permet pas encore de confirmer une commande ni
+de la marquer prête ou expédiée : le statut affiché découle du paiement et
+de la livraison, et la seule action possible est l'annulation.
 
 ## Paiement
 
