@@ -1,9 +1,12 @@
-import { Redirect } from "expo-router";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { router } from "expo-router";
 import * as Linking from "expo-linking";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
+import { Logo } from "@/components/Logo";
+import { LoadingScreen } from "@/components/RoleGate";
 import { TextField } from "@/components/TextField";
 import { ApiError, apiErrorMessage } from "@/lib/api";
 import * as authApi from "@/lib/auth";
@@ -23,7 +26,7 @@ export default function LoginScreen() {
   const [unverifiedPhone, setUnverifiedPhone] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  if (user) return <Redirect href={roleHomeHref(user)} />;
+  if (user) return <LeaveLogin home={roleHomeHref(user)} />;
 
   async function submit() {
     const normalized = normalizeSenegalPhone(phone);
@@ -52,10 +55,13 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          {router.canGoBack() ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Retour" onPress={() => router.back()} hitSlop={12} style={styles.back}>
+              <Ionicons name="arrow-back" size={24} color={colors.ink} />
+            </Pressable>
+          ) : null}
           <View style={styles.header}>
-            <Text style={styles.brand}>
-              Sunu<Text style={styles.brandAccent}>Mall</Text>
-            </Text>
+            <Logo size={64} stacked />
             <Text style={styles.title}>Connexion</Text>
             <Text style={styles.subtitle}>Accédez à votre compte Sunu Mall.</Text>
           </View>
@@ -109,6 +115,18 @@ export default function LoginScreen() {
   );
 }
 
+/**
+ * Connecté : retour à l'écran d'où vient le visiteur (panier, fiche
+ * produit…), qui s'adapte au compte ; sinon, l'espace du compte.
+ */
+function LeaveLogin({ home }: { home: ReturnType<typeof roleHomeHref> }) {
+  useEffect(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace(home);
+  }, [home]);
+  return <LoadingScreen />;
+}
+
 function ResendVerification({ phone }: { phone: string }) {
   const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
 
@@ -139,9 +157,8 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.white },
   flex: { flex: 1 },
   content: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 28 },
+  back: { alignSelf: "flex-start" },
   header: { alignItems: "center", gap: 6 },
-  brand: { fontSize: 30, fontWeight: "800", color: colors.navy, marginBottom: 12 },
-  brandAccent: { color: colors.orange },
   title: { fontSize: 24, fontWeight: "800", color: colors.ink },
   subtitle: { fontSize: 14, color: colors.mutedForeground },
   form: { gap: 16 },

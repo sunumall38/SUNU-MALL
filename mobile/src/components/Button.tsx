@@ -43,7 +43,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   primary: { backgroundColor: colors.orange },
-  secondary: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border },
+  secondary: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.orange },
   ghost: { backgroundColor: "transparent" },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },

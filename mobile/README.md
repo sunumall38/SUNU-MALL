@@ -5,7 +5,8 @@ affiché dépend du rôle, comme sur le site.
 
 | Compte | Dans l'appli |
 |---|---|
-| Client | Produits, fiche produit, panier (`src/app/client/`) — la commande se finalise encore sur le site |
+| Visiteur | Écran d'accueil, puis catalogue, recherche, boutiques et fiches produit sans compte ; connexion demandée pour acheter |
+| Client | Onglets Accueil, Recherche, Panier, Commandes, Profil ; commande et paiement Wave / Orange Money (`src/app/client/`) |
 | Livreur | Espace livreur (`src/app/driver/`) — provisoire, renvoie vers le site |
 | Commerçant, partenaire, admin | Écran « votre espace est sur le site » |
 | Mot de passe provisoire | Changement obligatoire avant tout (`src/app/change-password.tsx`) |
@@ -49,19 +50,36 @@ src/
 ├── app/            # Écrans (Expo Router : un fichier = une route)
 │   ├── _layout.tsx         # Racine : charge la session enregistrée
 │   ├── index.tsx           # Aiguillage : connexion ou espace du compte
+│   ├── welcome.tsx         # Écran d'accueil du visiteur
 │   ├── login.tsx
 │   ├── change-password.tsx
 │   ├── web-only.tsx
-│   ├── client/             # Espace client
-│   │   ├── (tabs)/         # Onglets Accueil et Panier
-│   │   └── product/[id].tsx    # Fiche produit
+│   ├── client/             # Espace client (ouvert aux visiteurs)
+│   │   ├── (tabs)/         # Accueil, Recherche, Panier, Commandes, Profil
+│   │   ├── product/[id].tsx    # Fiche produit
+│   │   ├── checkout.tsx        # Livraison et paiement
+│   │   ├── payment/[id].tsx    # Paiement et retour de Wave / Orange Money
+│   │   ├── orders/[id].tsx     # Détail d'une commande
+│   │   └── …                   # Adresses, favoris, notifications, boutiques, catégories
 │   └── driver/             # Espace livreur
-├── components/     # Bouton, champ, quantité, garde d'accès par rôle
-├── lib/            # Client API, téléphone +221, formats, rôles
-├── store/          # Session (jetons dans le trousseau chiffré) et panier
+├── components/     # Logo, boutons, cartes produit, onglets en pastilles…
+├── lib/            # Client API, téléphone +221, formats, rôles, statuts de commande
+├── store/          # Session (jetons dans le trousseau chiffré), panier, favoris, commande en cours
 ├── theme.ts        # Couleurs de la marque
 └── types.ts        # Types de l'API
 ```
+
+Le design suit la maquette « Espace client (application mobile) » ; les
+couleurs sont dans `src/theme.ts`.
+
+## Paiement
+
+En production, « Confirmer et payer » crée la commande puis ouvre la page
+Wave ou Orange Money. Le paiement est lancé avec `return_to: "app"` : la
+page de retour du site invite alors à revenir dans l'appli, qui demande le
+statut au serveur dès qu'elle repasse au premier plan. Tant que le backend
+est en mode test (`PAYMENT_SANDBOX`), l'écran propose de simuler un
+paiement réussi ou un échec.
 
 `src/types.ts` et `src/lib/phone.ts` sont copiés du site (`frontend/src`).
 Ils iront dans un paquet partagé avec le site pour n'être écrits qu'une fois.

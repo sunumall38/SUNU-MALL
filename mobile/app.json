@@ -20,7 +20,14 @@
     "plugins": [
       "expo-router",
       "expo-status-bar",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Sunu Mall utilise votre position pour calculer les frais de livraison et guider le livreur jusqu'à vous."
+        }
+      ],
+      "expo-font"
     ],
     "scheme": "sunumall"
   }
