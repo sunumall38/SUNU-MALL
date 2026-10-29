@@ -383,7 +383,7 @@ class Driver(models.Model):
         """
         last_tracking = (
             DeliveryTracking.objects.filter(delivery__driver_id=self.id)
-            .order_by("-recorded_at")
+            .order_by("-recorded_at", "-id")
             .first()
         )
         return (
@@ -990,7 +990,7 @@ class DeliveryTracking(models.Model):
     recorded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-recorded_at']
+        ordering = ['-recorded_at', '-id']  # départage deux points GPS de même horodatage
 
     def broadcast(self):
         """Publie la nouvelle position sur le canal temps réel de la livraison.
