@@ -1,12 +1,14 @@
+import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
-import { apiErrorMessage, apiGet } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
+import { listProducts } from "@/lib/catalog";
 import { formatPrice, mediaUrl } from "@/lib/format";
 import { useAuthStore } from "@/store/auth";
 import { colors } from "@/theme";
-import type { Paginated, Product } from "@/types";
+import type { Product } from "@/types";
 
 /** Accueil client : catalogue paginé, branché sur l'API réelle. */
 export default function ClientHome() {
@@ -22,7 +24,7 @@ export default function ClientHome() {
   const load = useCallback(async (targetPage: number) => {
     setError(null);
     try {
-      const data = await apiGet<Paginated<Product>>(`/catalog/products/?page=${targetPage}`);
+      const data = await listProducts(targetPage);
       setProducts((prev) => (targetPage === 1 ? data.results : [...prev, ...data.results]));
       setPage(targetPage);
       setHasMore(Boolean(data.next));
@@ -107,7 +109,11 @@ export default function ClientHome() {
 function ProductCard({ product }: { product: Product }) {
   const image = mediaUrl(product.images[0]?.url);
   return (
-    <View style={styles.card}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => router.push(`/client/product/${product.id}`)}
+      style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+    >
       {image ? (
         <Image source={{ uri: image }} style={styles.image} resizeMode="cover" accessibilityLabel={product.name} />
       ) : (
@@ -122,7 +128,7 @@ function ProductCard({ product }: { product: Product }) {
         </Text>
         <Text style={styles.price}>{formatPrice(product.base_price)}</Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -153,6 +159,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: "hidden",
   },
+  cardPressed: { opacity: 0.85 },
   image: { width: "100%", aspectRatio: 1, backgroundColor: colors.muted },
   imagePlaceholder: { backgroundColor: colors.accent },
   cardBody: { padding: 10, gap: 2 },

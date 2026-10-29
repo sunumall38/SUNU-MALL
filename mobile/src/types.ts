@@ -47,14 +47,43 @@ export interface ProductImage {
   position: number;
 }
 
+export interface ProductVariant {
+  id: string;
+  product: string;
+  sku: string;
+  attributes: Record<string, string>;
+  price: string;
+  is_available: boolean;
+  /** Stock disponible. */
+  quantity: number;
+}
+
 export interface Product {
   id: string;
   store: string;
   store_name: string;
+  brand: string | null;
   name: string;
   description: string;
   base_price: string;
   status: "draft" | "active" | "inactive";
   images: ProductImage[];
+  variants: ProductVariant[];
   store_is_verified?: boolean;
+}
+
+export interface CartItem {
+  id: string;
+  product_variant: string;
+  product_name: string;
+  unit_price: string;
+  quantity: number;
+  subtotal: number;
+  store: string;
+}
+
+export interface Cart {
+  id: string;
+  items: CartItem[];
+  total_price: number;
 }

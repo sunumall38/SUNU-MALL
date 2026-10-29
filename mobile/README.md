@@ -5,7 +5,7 @@ affiché dépend du rôle, comme sur le site.
 
 | Compte | Dans l'appli |
 |---|---|
-| Client | Espace client (`src/app/client/`) |
+| Client | Produits, fiche produit, panier (`src/app/client/`) — la commande se finalise encore sur le site |
 | Livreur | Espace livreur (`src/app/driver/`) — provisoire, renvoie vers le site |
 | Commerçant, partenaire, admin | Écran « votre espace est sur le site » |
 | Mot de passe provisoire | Changement obligatoire avant tout (`src/app/change-password.tsx`) |
@@ -53,10 +53,12 @@ src/
 │   ├── change-password.tsx
 │   ├── web-only.tsx
 │   ├── client/             # Espace client
+│   │   ├── (tabs)/         # Onglets Accueil et Panier
+│   │   └── product/[id].tsx    # Fiche produit
 │   └── driver/             # Espace livreur
-├── components/     # Bouton, champ de saisie, garde d'accès par rôle
+├── components/     # Bouton, champ, quantité, garde d'accès par rôle
 ├── lib/            # Client API, téléphone +221, formats, rôles
-├── store/          # Session (jetons dans le trousseau chiffré du téléphone)
+├── store/          # Session (jetons dans le trousseau chiffré) et panier
 ├── theme.ts        # Couleurs de la marque
 └── types.ts        # Types de l'API
 ```
