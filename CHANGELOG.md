@@ -7,6 +7,9 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
 ## [Non publié]
 
 ### Modifié
+- Django 5.0 → 5.2 LTS (correctifs de sécurité jusqu'en avril 2028 ; la 5.0
+  n'en reçoit plus depuis avril 2025), avec DRF 3.16, django-filter 25.1,
+  drf-spectacular 0.28, SimpleJWT 5.5, django-celery-beat 2.8, WhiteNoise 6.9.
 - Parcours vendeur : pièce d'identité d'abord, puis boutique ; l'administration
   rend une seule décision sur le dossier complet (boutique active et identité
   vérifiée, ou refus motivé). Un dossier refusé repart en examen dès que le
