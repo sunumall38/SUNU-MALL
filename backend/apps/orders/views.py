@@ -25,7 +25,7 @@ from .pricing import (
     best_delivery_partner, compute_delivery_fee, compute_delivery_fee_multi,
     optimize_route, route_distance_km,
 )
-from .realtime import subscribe_delivery_events
+from .realtime import release_stream_slot, subscribe_delivery_events, try_open_stream_slot
 from .serializers import (
     AddressSerializer, CheckoutSerializer, DeliveryCalculateSerializer,
     DeliveryPickupSerializer, DeliveryPricingRuleSerializer, DeliveryQuoteSerializer,
@@ -1091,6 +1091,30 @@ class DeliveryViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class _SlotReleasingStream:
+    """Flux SSE qui rend sa place (`try_open_stream_slot`) à la fermeture.
+
+    Django appelle `close()` à la fin de la réponse, y compris quand le client
+    s'est déconnecté ou que le générateur n'a jamais démarré — cas où le
+    `finally` du générateur, lui, ne s'exécuterait pas.
+    """
+
+    def __init__(self, iterator):
+        self._iterator = iterator
+        self._released = False
+
+    def __iter__(self):
+        return self._iterator
+
+    def close(self):
+        try:
+            self._iterator.close()
+        finally:
+            if not self._released:
+                self._released = True
+                release_stream_slot()
+
+
 class DeliveryEventStreamView(viewsets.ViewSet):
     """
     Flux Server-Sent Events d'une livraison (SSE, HTTP long-message).
@@ -1107,7 +1131,10 @@ class DeliveryEventStreamView(viewsets.ViewSet):
     - sans Redis, le flux renvoie l'instantané puis des keep-alives (le
       frontend garde son polling de secours de 10 s) ;
     - un événement publié avant la connexion n'est pas ré-expédié (le flux est
-      un journal « from now on », pas un historique).
+      un journal « from now on », pas un historique) ;
+    - au-delà de `SSE_MAX_CONCURRENT_STREAMS` flux ouverts, réponse 204 :
+      l'EventSource s'arrête sans se reconnecter et le frontend passe au
+      polling, ce qui garde des fils libres pour le reste de l'API.
     """
     permission_classes = [permissions.AllowAny]  # auth gérée manuellement ci-dessous
 
@@ -1183,11 +1210,15 @@ class DeliveryEventStreamView(viewsets.ViewSet):
     def get(self, request, pk=None):
         user = self._authenticate(request)
         delivery = self._delivery_for(user, pk)
-        _, pubsub = subscribe_delivery_events(pk)
-        response = StreamingHttpResponse(
-            self._event_stream(delivery, pubsub),
-            content_type="text/event-stream",
-        )
+        if not try_open_stream_slot():
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            _, pubsub = subscribe_delivery_events(pk)
+            stream = _SlotReleasingStream(self._event_stream(delivery, pubsub))
+        except Exception:
+            release_stream_slot()
+            raise
+        response = StreamingHttpResponse(stream, content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"
         response["X-Accel-Buffering"] = "no"
         return response

@@ -36,7 +36,9 @@ services:
       - key: PROCESS_TYPE
         value: web
       # 512 Mo de RAM : un seul worker gunicorn. Les threads servent aussi le
-      # flux temps réel du suivi de livraison (une connexion = un thread).
+      # flux temps réel du suivi de livraison (une connexion = un thread) ;
+      # au plus la moitié (SSE_MAX_CONCURRENT_STREAMS, 4 par défaut ici) lui
+      # est accordée, les suivis suivants passent au polling.
       - key: WEB_CONCURRENCY
         value: "1"
       - key: GUNICORN_THREADS
