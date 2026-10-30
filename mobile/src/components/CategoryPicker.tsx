@@ -6,7 +6,10 @@ import { listCategories } from "@/lib/catalog";
 import { colors, radius } from "@/theme";
 import type { Category } from "@/types";
 
-/** Champ « Catégorie » : ouvre la liste des catégories (principales puis sous-catégories). */
+/**
+ * Champ « Catégorie » : ouvre la liste des catégories principales. Pas de
+ * sous-catégories : les écrans clients ne les affichent pas.
+ */
 export function CategoryPicker({ value, onChange }: { value: Category | null; onChange: (category: Category) => void }) {
   const [open, setOpen] = useState(false);
   const [categories, setCategories] = useState<Category[] | null>(null);
@@ -20,9 +23,7 @@ export function CategoryPicker({ value, onChange }: { value: Category | null; on
       .catch(() => setError(true));
   }, [open, categories]);
 
-  const rows = (categories ?? [])
-    .filter((c) => c.parent === null)
-    .flatMap((parent) => [parent, ...(categories ?? []).filter((c) => c.parent === parent.id)]);
+  const rows = (categories ?? []).filter((c) => c.parent === null);
 
   return (
     <View style={styles.wrapper}>
@@ -51,7 +52,6 @@ export function CategoryPicker({ value, onChange }: { value: Category | null; on
               data={rows}
               keyExtractor={(item) => String(item.id)}
               renderItem={({ item }) => {
-                const child = item.parent !== null;
                 const selected = item.id === value?.id;
                 return (
                   <Pressable
@@ -61,9 +61,9 @@ export function CategoryPicker({ value, onChange }: { value: Category | null; on
                       onChange(item);
                       setOpen(false);
                     }}
-                    style={[styles.row, child && styles.child]}
+                    style={styles.row}
                   >
-                    <Text style={[child ? styles.childName : styles.parentName, selected && styles.selected]}>{item.name}</Text>
+                    <Text style={[styles.name, selected && styles.selected]}>{item.name}</Text>
                     {selected ? <Ionicons name="checkmark" size={20} color={colors.orange} /> : null}
                   </Pressable>
                 );
@@ -113,8 +113,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  child: { paddingLeft: 36 },
-  parentName: { fontSize: 15, fontWeight: "700", color: colors.ink },
-  childName: { fontSize: 15, color: colors.ink },
+  name: { fontSize: 15, fontWeight: "700", color: colors.ink },
   selected: { color: colors.orange },
 });

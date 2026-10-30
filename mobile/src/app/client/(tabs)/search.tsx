@@ -154,12 +154,9 @@ function CategoryList({ query }: { query: string }) {
     );
   }
 
-  // Catégories principales, chacune suivie de ses sous-catégories.
+  // Catégories principales seulement : chacune inclut les produits de ses sous-catégories.
   const needle = query.toLowerCase();
-  const rows = categories
-    .filter((c) => c.parent === null)
-    .flatMap((parent) => [parent, ...categories.filter((c) => c.parent === parent.id)])
-    .filter((c) => !needle || c.name.toLowerCase().includes(needle));
+  const rows = categories.filter((c) => c.parent === null && (!needle || c.name.toLowerCase().includes(needle)));
 
   return (
     <FlatList
@@ -169,21 +166,18 @@ function CategoryList({ query }: { query: string }) {
       keyboardShouldPersistTaps="handled"
       renderItem={({ item }) => {
         const style = categoryStyle(item.name);
-        const child = item.parent !== null;
         return (
           <Pressable
             accessibilityRole="button"
             onPress={() =>
               router.push({ pathname: "/client/category/[id]", params: { id: String(item.id), name: item.name } })
             }
-            style={[styles.categoryRow, child && styles.categoryChild]}
+            style={styles.categoryRow}
           >
-            {child ? null : (
-              <View style={[styles.categoryIcon, { backgroundColor: style.background }]}>
-                <Ionicons name={style.icon} size={20} color={style.color} />
-              </View>
-            )}
-            <Text style={child ? styles.categoryChildName : styles.categoryName}>{item.name}</Text>
+            <View style={[styles.categoryIcon, { backgroundColor: style.background }]}>
+              <Ionicons name={style.icon} size={20} color={style.color} />
+            </View>
+            <Text style={styles.categoryName}>{item.name}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
           </Pressable>
         );
@@ -245,8 +239,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: 12,
   },
-  categoryChild: { marginLeft: 28, paddingVertical: 10, backgroundColor: "transparent" },
   categoryIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   categoryName: { flex: 1, fontSize: 15, fontWeight: "700", color: colors.ink },
-  categoryChildName: { flex: 1, fontSize: 14, color: colors.ink },
 });
