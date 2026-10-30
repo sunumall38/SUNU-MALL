@@ -96,7 +96,21 @@ class UserViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='admin/dashboard/stats', permission_classes=[IsAdmin])
     def admin_dashboard_stats(self, request):
-        """Retourne des statistiques de base pour le tableau de bord admin."""
+        """Statistiques du tableau de bord admin et de la page Analytics.
+
+        Les compteurs portent sur toute la plateforme ; `?days=` (1 à 365,
+        14 par défaut) règle la période des courbes de tendance.
+        """
+        from apps.complaints.models import Complaint
+        from apps.monetization.models import Subscription
+        from apps.orders.models import Order
+        from apps.payments.models import Payment
+
+        try:
+            days = min(max(int(request.query_params.get("days", 14)), 1), 365)
+        except (TypeError, ValueError):
+            days = 14
+
         users_total = User.objects.count()
         users_active = User.objects.filter(is_active=True).count()
         users_unverified = User.objects.filter(is_verified=False).count()
@@ -105,6 +119,17 @@ class UserViewSet(viewsets.ModelViewSet):
         stores_active = Store.objects.filter(status=Store.Status.ACTIVE).count()
         stores_pending_review = Store.objects.filter(status=Store.Status.INACTIVE).count()
         stores_suspended = Store.objects.filter(status=Store.Status.SUSPENDED).count()
+
+        orders = Order.objects.all()
+        payments = Payment.objects.all()
+        successful = payments.filter(status=Payment.Status.SUCCESS)
+        complaints = Complaint.objects.all()
+        resolved = [Complaint.Status.RESOLVED, Complaint.Status.CLOSED]
+        today = timezone.now().date()
+        subscriptions = Subscription.objects.all()
+        active_subscriptions = subscriptions.filter(
+            status=Subscription.Status.ACTIVE, starts_at__lte=today, ends_at__gte=today
+        )
 
         return Response({
             "users": {
@@ -118,9 +143,34 @@ class UserViewSet(viewsets.ModelViewSet):
                 "pending_review": stores_pending_review,
                 "suspended": stores_suspended,
             },
+            "orders": {
+                "total": orders.count(),
+                "pending": orders.filter(status=Order.Status.PENDING).count(),
+                "delivered": orders.filter(status=Order.Status.DELIVERED).count(),
+                "cancelled": orders.filter(status=Order.Status.CANCELLED).count(),
+            },
+            "payments": {
+                "total": payments.count(),
+                "success": successful.count(),
+                "failed": payments.filter(status=Payment.Status.FAILED).count(),
+                # Montant encaissé (paiements réussis, hors remboursés), en FCFA.
+                "revenue": str(successful.aggregate(total=models.Sum("amount"))["total"] or 0),
+            },
+            "complaints": {
+                "total": complaints.count(),
+                "open": complaints.exclude(status__in=resolved).count(),
+                "resolved": complaints.filter(status__in=resolved).count(),
+            },
+            "subscriptions": {
+                "total": subscriptions.count(),
+                "active": active_subscriptions.count(),
+                # Actifs qui se terminent dans les 7 prochains jours.
+                "expiring": active_subscriptions.filter(ends_at__lte=today + timedelta(days=7)).count(),
+            },
             "trend": {
-                "new_users": _daily_counts(User.objects.all()),
-                "new_stores": _daily_counts(Store.objects.all()),
+                "new_users": _daily_counts(User.objects.all(), days),
+                "new_stores": _daily_counts(Store.objects.all(), days),
+                "new_orders": _daily_counts(Order.objects.all(), days),
             },
         })
 

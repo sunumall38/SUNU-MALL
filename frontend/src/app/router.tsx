@@ -9,6 +9,7 @@ import { DriverLayout } from "@/components/layout/DriverLayout";
 import { PartnerLayout } from "@/components/layout/PartnerLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { KycSessionWatcher } from "@/components/auth/KycSessionWatcher";
+import { RouteError } from "@/components/layout/RouteError";
 import { Spinner } from "@/components/ui/Spinner";
 import { FEATURES } from "@/lib/features";
 
@@ -57,6 +58,7 @@ export const router = createBrowserRouter([
   {
     element: <KycSessionWatcher />,
     hydrateFallbackElement: <Spinner label="Chargement…" />,
+    errorElement: <RouteError />,
     children: [
       { path: "/", element: <Navigate to="/home" replace /> },
 

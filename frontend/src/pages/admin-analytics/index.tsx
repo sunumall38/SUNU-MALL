@@ -8,15 +8,17 @@ import { Spinner } from "@/components/ui/Spinner";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Breadcrumbs } from "@/components/ui/Breadcrumbs";
 import { TrendChart } from "@/components/ui/TrendChart";
+import { formatPrice } from "@/lib/utils";
 
+/** Blocs facultatifs : une réponse incomplète affiche 0 au lieu de faire planter la page. */
 interface DashboardStats {
-  users: { total: number; active: number; unverified: number };
-  stores: { total: number; active: number; pending_review: number; suspended: number };
-  orders: { total: number; pending: number; delivered: number; cancelled: number };
-  payments: { total: number; success: number; failed: number };
-  complaints: { total: number; open: number; resolved: number };
-  subscriptions: { total: number; active: number; expiring: number };
-  trend: { new_users: { date: string; count: number }[]; new_orders: { date: string; count: number }[] };
+  users?: { total: number; active: number; unverified: number };
+  stores?: { total: number; active: number; pending_review: number; suspended: number };
+  orders?: { total: number; pending: number; delivered: number; cancelled: number };
+  payments?: { total: number; success: number; failed: number; revenue: string };
+  complaints?: { total: number; open: number; resolved: number };
+  subscriptions?: { total: number; active: number; expiring: number };
+  trend?: { new_users?: { date: string; count: number }[]; new_orders?: { date: string; count: number }[] };
 }
 
 export default function AdminAnalyticsPage() {
@@ -54,16 +56,21 @@ export default function AdminAnalyticsPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Utilisateurs" value={data.users.total} icon={<BarChart3 className="h-5 w-5" />} tone="orange" subtitle={`${data.users.active} actifs`} />
-        <StatCard label="Boutiques" value={data.stores.total} tone="green" subtitle={`${data.stores.active} actives`} />
-        <StatCard label="Commandes" value={data.orders.total} tone="blue" subtitle={`${data.orders.delivered} livrées`} />
-        <StatCard label="Paiements" value={data.payments.total} tone="purple" subtitle={`${data.payments.failed} échoués`} />
+        <StatCard label="Utilisateurs" value={data.users?.total ?? 0} icon={<BarChart3 className="h-5 w-5" />} tone="orange" subtitle={`${data.users?.active ?? 0} actifs`} />
+        <StatCard label="Boutiques" value={data.stores?.total ?? 0} tone="green" subtitle={`${data.stores?.active ?? 0} actives`} />
+        <StatCard label="Commandes" value={data.orders?.total ?? 0} tone="blue" subtitle={`${data.orders?.delivered ?? 0} livrées`} />
+        <StatCard label="Paiements" value={data.payments?.total ?? 0} tone="purple" subtitle={`${data.payments?.failed ?? 0} échoués`} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label="Plaintes" value={data.complaints.total} tone="red" subtitle={`${data.complaints.open} ouvertes`} />
-        <StatCard label="Abonnements" value={data.subscriptions.total} tone="green" subtitle={`${data.subscriptions.active} actifs`} />
-        <StatCard label="Revenus" value={`${data.payments.success}`} tone="orange" subtitle="Paiements réussis" />
+        <StatCard label="Plaintes" value={data.complaints?.total ?? 0} tone="red" subtitle={`${data.complaints?.open ?? 0} ouvertes`} />
+        <StatCard label="Abonnements" value={data.subscriptions?.total ?? 0} tone="green" subtitle={`${data.subscriptions?.active ?? 0} actifs`} />
+        <StatCard
+          label="Revenus"
+          value={formatPrice(Number(data.payments?.revenue ?? 0))}
+          tone="orange"
+          subtitle={`${data.payments?.success ?? 0} paiements réussis`}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
