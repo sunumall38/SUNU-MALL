@@ -47,3 +47,33 @@ class CategoryFilterTests(TestCase):
         response = self.client.get(f"/api/catalog/stores/?product_category={self.mode.id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual([store["name"] for store in response.json()["results"]], ["Boutique mode"])
+
+
+class PublicStoreListTests(TestCase):
+    """Une boutique sans produit en ligne n'apparaît pas dans l'annuaire public."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(username="vide", email="vide@example.com", password="secret123")
+        self.empty = Store.objects.create(owner=self.owner, name="Boutique vide", status=Store.Status.ACTIVE)
+        seller = User.objects.create_user(username="plein", email="plein@example.com", password="secret123")
+        self.full = Store.objects.create(owner=seller, name="Boutique pleine", status=Store.Status.ACTIVE)
+        Product.objects.create(store=self.full, name="Robe", base_price=5000, status=Product.Status.ACTIVE)
+        # Un brouillon ne suffit pas à apparaître.
+        Product.objects.create(store=self.empty, name="Brouillon", base_price=5000, status=Product.Status.DRAFT)
+
+    def _names(self, url="/api/catalog/stores/"):
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        return {store["name"] for store in response.json()["results"]}
+
+    def test_visitor_only_sees_stores_with_products(self):
+        self.assertEqual(self._names(), {"Boutique pleine"})
+
+    def test_empty_store_page_stays_reachable(self):
+        response = self.client.get(f"/api/catalog/stores/{self.empty.id}/")
+        self.assertEqual(response.status_code, 200)
+
+    def test_owner_still_sees_own_empty_store(self):
+        self.client.force_authenticate(self.owner)
+        self.assertEqual(self._names(f"/api/catalog/stores/?owner={self.owner.id}"), {"Boutique vide"})

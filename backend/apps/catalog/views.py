@@ -406,6 +406,20 @@ class StoreViewSet(viewsets.ModelViewSet):
             ),
         )
 
+        if self.action == "list" and not (user.is_authenticated and user.is_admin()):
+            # Annuaire public : une boutique sans produit en ligne n'y figure
+            # pas. Son propriétaire la voit toujours dans la liste, et sa page
+            # reste accessible par son lien.
+            qs = qs.annotate(
+                has_active_product=models.Exists(
+                    Product.objects.filter(store=models.OuterRef("pk"), status=Product.Status.ACTIVE)
+                )
+            )
+            visible = models.Q(has_active_product=True)
+            if user.is_authenticated:
+                visible |= models.Q(owner=user)
+            qs = qs.filter(visible)
+
         category_id = self.request.query_params.get("product_category")
         if category_id:
             qs = qs.filter(
