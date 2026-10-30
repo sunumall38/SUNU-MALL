@@ -25,6 +25,7 @@ def _real_payment_credentials(settings):
         "ORANGE_MONEY_CLIENT_ID",
         "ORANGE_MONEY_CLIENT_SECRET",
         "ORANGE_MONEY_MERCHANT_KEY",
+        "NABOOPAY_API_KEY",
     )
     return [name for name in names if settings.get(name)]
 
@@ -55,6 +56,16 @@ def validate_production_settings(settings):
             raise ImproperlyConfigured(
                 "WAVE_WEBHOOK_SECRET est obligatoire quand WAVE_API_KEY est renseignée : "
                 "sans lui, la signature des notifications Wave ne peut pas être vérifiée."
+            )
+
+    # 2 bis. Même règle pour NabooPay : sans secret, aucun webhook n'est
+    #    accepté (seule la vérification au retour du client confirmerait).
+    if not sandbox and settings.get("NABOOPAY_API_KEY"):
+        naboopay_secret = (settings.get("PAYMENT_PROVIDERS") or {}).get("naboopay")
+        if not naboopay_secret:
+            raise ImproperlyConfigured(
+                "NABOOPAY_WEBHOOK_SECRET est obligatoire quand NABOOPAY_API_KEY est renseignée : "
+                "sans lui, la signature des notifications NabooPay ne peut pas être vérifiée."
             )
 
     # 3. Secrets laissés à leur valeur par défaut (publique).

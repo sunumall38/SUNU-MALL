@@ -10,6 +10,11 @@ Trois modes :
 * ``OrangeMoneyGateway`` branche l'API Orange Money Web Payment (jeton OAuth2,
   redirection vers ``payment_url``, confirmation par webhook vérifié via le
   ``notif_token`` reçu à la création du paiement).
+* ``NabooPayGateway`` passe par l'agrégateur NabooPay (docs.naboopay.com) pour
+  Wave et Orange Money avec un seul compte marchand : redirection vers
+  ``checkout_url``, confirmation par webhook signé HMAC-SHA256
+  (entête ``X-Signature``). Prioritaire dès que ``NABOOPAY_API_KEY`` est
+  renseignée.
 
 Aucune clé marchande n'est commitée : tant que les clés ne sont pas fournies,
 ``get_gateway`` renvoie la passerelle demandée qui échoue proprement (erreur
@@ -518,6 +523,229 @@ def verify_orange_notification(payment, notif_token) -> bool:
     return valid
 
 
+def verify_naboopay_signature(secret, signature, raw_body) -> bool:
+    """Vérifie l'entête ``X-Signature`` d'un webhook NabooPay.
+
+    NabooPay signe le corps brut (octets reçus, jamais le JSON re-sérialisé)
+    en HMAC-SHA256 avec le secret du webhook, digest hexadécimal.
+    Comparaison en temps constant.
+    """
+    if not secret or not isinstance(signature, str) or not signature:
+        return False
+    expected = hmac.new(secret.encode("utf-8"), raw_body or b"", hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature.strip().lower())
+
+
+NABOOPAY_PAID_STATUSES = ("paid", "paid_and_blocked")
+
+
+def naboopay_transaction_outcome(transaction, payment):
+    """Traduit une transaction NabooPay en issue de paiement.
+
+    * ``paid`` / ``paid_and_blocked`` → SUCCESS, seulement si devise et
+      montant sont ceux du paiement (frais à la charge du client tolérés :
+      le montant peut alors les inclure) ;
+    * ``cancelled`` → FAILED ;
+    * ``pending`` / ``refunded`` / inconnu → None (rien à changer).
+    """
+    status_value = str(transaction.get("transaction_status") or "").lower()
+    if status_value in NABOOPAY_PAID_STATUSES:
+        currency = str(transaction.get("currency") or "XOF").upper()
+        amount = transaction.get("amount")
+        try:
+            net = Decimal(str(amount)) - Decimal(str(transaction.get("fees") or 0))
+        except (InvalidOperation, TypeError, ValueError):
+            net = None
+        if currency != (payment.currency or "XOF").upper() or not (
+            _same_amount(amount, payment) or (net is not None and _same_amount(net, payment))
+        ):
+            raise PaymentGatewayError("NabooPay : montant ou devise de la transaction différents du paiement.")
+        return SUCCESS
+    if status_value == "cancelled":
+        return FAILED
+    return None
+
+
+def _naboopay_payer(payment):
+    """Client à préremplir sur la page NabooPay (prénom, nom, téléphone)."""
+    from django.contrib.auth import get_user_model
+
+    user = None
+    if payment.order_id is not None:
+        user = payment.order.customer
+    elif payment.global_order_id is not None:
+        user = payment.global_order.customer
+    elif payment.subscription_id is not None:
+        user = get_user_model().objects.filter(pk=payment.subscription.subscriber_id).first()
+    if user is None:
+        return None
+    customer = {}
+    if user.first_name:
+        customer["first_name"] = user.first_name[:60]
+    if user.last_name:
+        customer["last_name"] = user.last_name[:60]
+    phone = (user.phone or "").replace(" ", "")
+    # Format attendu par NabooPay : +221XXXXXXXXX (numéro sénégalais).
+    if phone.startswith("+221") and phone[4:].isdigit() and len(phone) == 13:
+        customer["phone"] = phone
+    return customer or None
+
+
+def _naboopay_product(payment):
+    """Ligne unique « commande » : le montant facturé est exactement celui du paiement."""
+    if payment.order_id is not None:
+        order = payment.order
+        name = f"Commande Sunu Mall n°{str(order.id)[:8]}"
+        items = order.items.select_related("product_variant__product")[:10]
+        description = ", ".join(f"{item.product_variant.product.name} × {item.quantity}" for item in items)
+    elif payment.global_order_id is not None:
+        name = f"Commande Sunu Mall {payment.global_order.reference or str(payment.global_order_id)[:8]}"
+        description = f"{payment.global_order.orders.count()} boutique(s)"
+    else:
+        name = "Abonnement Sunu Mall"
+        description = getattr(getattr(payment.subscription, "plan", None), "name", "") or ""
+    return {
+        "name": name[:120],
+        "price": int(payment.amount),
+        "quantity": 1,
+        "description": (description or name)[:250],
+    }
+
+
+class NabooPayGateway(BasePaymentGateway):
+    """
+    NabooPay (docs.naboopay.com, API v2) — Wave et Orange Money via un seul
+    agrégateur.
+
+    ``POST /api/v2/transactions`` crée une transaction limitée au moyen choisi
+    par le client et renvoie la ``checkout_url`` de la page de paiement
+    hébergée. La confirmation arrive par webhook signé (``payment_status``) ;
+    ``GET /api/v2/transactions/{order_id}`` sert de filet de sécurité quand
+    le client revient sur /paiement/retour avant le webhook.
+    """
+
+    TRANSACTIONS_PATH = "/api/v2/transactions"
+
+    def __init__(self, method):
+        self.method = method
+
+    def _url(self, path):
+        return f"{settings.NABOOPAY_API_BASE_URL.rstrip('/')}{path}"
+
+    def _headers(self):
+        if not settings.NABOOPAY_API_KEY:
+            raise PaymentGatewayError("NABOOPAY_API_KEY n'est pas configurée.")
+        return {
+            "Authorization": f"Bearer {settings.NABOOPAY_API_KEY}",
+            "Content-Type": "application/json",
+        }
+
+    @staticmethod
+    def _state(payment):
+        return (payment.metadata or {}).get("naboopay") or {}
+
+    def get_transaction(self, order_id):
+        return _json_get(self._url(f"{self.TRANSACTIONS_PATH}/{order_id}"), headers=self._headers())
+
+    def initiate(self, payment) -> dict:
+        headers = self._headers()
+        if int(payment.amount) <= 10:
+            raise PaymentGatewayError("NabooPay refuse les montants de 10 FCFA ou moins.")
+
+        # Une transaction encore en attente pour le même moyen et le même
+        # montant (retour arrière, double clic) est réutilisée.
+        state = self._state(payment)
+        if (
+            state.get("order_id")
+            and state.get("checkout_url")
+            and state.get("method") == self.method
+            and state.get("order_id") == payment.provider_ref
+        ):
+            try:
+                existing = self.get_transaction(state["order_id"])
+            except PaymentGatewayError:
+                existing = None
+            if (
+                existing
+                and str(existing.get("transaction_status") or "").lower() == "pending"
+                and _same_amount(existing.get("amount"), payment)
+            ):
+                return self._result(state["order_id"], state["checkout_url"])
+
+        payload = {
+            "method_of_payment": [self.method],
+            "products": [_naboopay_product(payment)],
+            "success_url": _payment_return_url(payment),
+            "error_url": _payment_cancel_url(payment),
+            "fees_customer_side": bool(settings.NABOOPAY_FEES_CUSTOMER_SIDE),
+            "is_escrow": False,
+        }
+        customer = _naboopay_payer(payment)
+        if customer:
+            payload["customer"] = customer
+        try:
+            transaction = _json_post(self._url(self.TRANSACTIONS_PATH), payload, headers)
+        except PaymentGatewayError as exc:
+            raise PaymentGatewayError(f"NabooPay : {exc}")
+
+        order_id = (transaction or {}).get("order_id")
+        checkout_url = (transaction or {}).get("checkout_url")
+        if not order_id or not checkout_url:
+            raise PaymentGatewayError(f"NabooPay a répondu une transaction incomplète : {transaction}")
+
+        metadata = dict(payment.metadata or {})
+        attempts = list(metadata.get("naboopay_attempts") or [])
+        attempts.append({"order_id": order_id, "method": self.method})
+        metadata["naboopay_attempts"] = attempts[-20:]
+        metadata["naboopay"] = {"order_id": order_id, "checkout_url": checkout_url, "method": self.method}
+        payment.metadata = metadata
+        payment.provider_ref = order_id
+        payment.save(update_fields=["metadata", "provider_ref"])
+        return self._result(order_id, checkout_url)
+
+    def _result(self, order_id, checkout_url):
+        label = METHOD_LABELS.get(self.method, self.method)
+        return {
+            "sandbox": False,
+            "method": self.method,
+            "provider": "naboopay",
+            "provider_ref": order_id,
+            "checkout_url": checkout_url,
+            "message": f"Redirection vers {label} pour valider le paiement.",
+        }
+
+    def fetch_status(self, payment):
+        order_id = payment.provider_ref
+        if not order_id:
+            return None
+        outcome = naboopay_transaction_outcome(self.get_transaction(order_id), payment)
+        if outcome == SUCCESS:
+            record_naboopay_paid_order(payment, order_id)
+        return outcome
+
+    def refund(self, payment):
+        order_id = self._state(payment).get("paid_order_id") or payment.provider_ref
+        if not order_id:
+            raise PaymentGatewayError("Aucune transaction NabooPay n'est liée à ce paiement.")
+        # Verbe GET voulu par l'API NabooPay ; remboursement total uniquement.
+        _json_get(self._url(f"/api/v2/refund/{order_id}"), headers=self._headers())
+        return True
+
+
+def record_naboopay_paid_order(payment, order_id):
+    """Mémorise la transaction NabooPay réellement payée (pour le remboursement)."""
+    from .models import Payment
+
+    metadata = dict(payment.metadata or {})
+    state = dict(metadata.get("naboopay") or {})
+    if state.get("paid_order_id") == order_id:
+        return
+    state["paid_order_id"] = order_id
+    metadata["naboopay"] = state
+    payment.metadata = metadata
+    Payment.objects.filter(pk=payment.pk).update(metadata=metadata)
+
+
 METHOD_LABELS = {
     "wave": "Wave",
     "orange_money": "Orange Money",
@@ -525,7 +753,14 @@ METHOD_LABELS = {
 }
 
 
+def naboopay_enabled():
+    """Vrai quand Wave et Orange Money passent par NabooPay."""
+    return bool(getattr(settings, "NABOOPAY_API_KEY", ""))
+
+
 def _configured(method):
+    if method in ("wave", "orange_money") and naboopay_enabled():
+        return True
     if method == "wave":
         return bool(settings.WAVE_API_KEY)
     if method == "orange_money":
@@ -556,6 +791,8 @@ def is_method_available(method):
 def get_gateway(method: str) -> BasePaymentGateway:
     if settings.PAYMENT_SANDBOX:
         return SandboxGateway()
+    if method in ("wave", "orange_money") and naboopay_enabled():
+        return NabooPayGateway(method)
     gateway = {
         "wave": WaveGateway,
         "orange_money": OrangeMoneyGateway,

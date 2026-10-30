@@ -135,7 +135,37 @@ Contrôle final, dans un navigateur :
 ## 6. Paiements réels Wave et Orange Money
 
 Tant que `PAYMENT_SANDBOX=True`, les paiements sont simulés et la boutique
-l'indique. Quand les comptes marchands sont ouverts :
+l'indique. Deux façons d'encaisser pour de vrai : **NabooPay** (un seul
+compte pour Wave et Orange Money, recommandé) ou les intégrations directes
+Wave Business / Orange Money ci-dessous. Si `NABOOPAY_API_KEY` est
+renseignée, NabooPay est utilisé pour les deux moyens.
+
+### NabooPay (recommandé)
+
+1. platform.naboopay.com → créer le compte marchand et faire valider
+   l'organisation (sans organisation active, l'API refuse les paiements).
+2. *Paramètres → Intégration* → créer une **clé API** de portée `checkout`
+   (ou `readAndWrite`). Elle n'est affichée qu'une fois.
+3. Même page → créer un **webhook** : URL
+   `https://<service>.onrender.com/api/payments/webhook/naboopay/` ; noter
+   son **secret**. Si le bouton de test du tableau de bord obtient « 404
+   paiement introuvable » : normal, la notification de test ne correspond
+   à aucune commande — seule une erreur 403 signale un mauvais secret.
+4. Render : `NABOOPAY_API_KEY`, `NABOOPAY_WEBHOOK_SECRET` et
+   `PAYMENT_SANDBOX=False`, **dans la même modification** (l'API refuse de
+   démarrer avec une clé réelle en mode simulé, ou sans secret de webhook).
+5. Frais NabooPay : déduits du versement au marchand par défaut ;
+   `NABOOPAY_FEES_CUSTOMER_SIDE=True` les ajoute au montant payé par le
+   client (page de paiement NabooPay).
+6. Remboursement depuis l'administration : NabooPay rembourse la totalité de
+   la transaction, à condition que le solde NabooPay le couvre. Un
+   remboursement partiel (une boutique d'une commande multi-boutiques) se
+   fait à la main, puis se valide dans l'administration.
+
+Le client choisit Wave ou Orange Money sur Sunu Mall, paie sur la page
+NabooPay, puis revient sur `/paiement/retour` : la commande passe « payée »
+dès le webhook (ou, s'il tarde, dès la vérification faite par la page de
+retour).
 
 ### Wave Business
 
@@ -165,7 +195,7 @@ l'indique. Quand les comptes marchands sont ouverts :
    Wave sans secret de webhook).
 2. La boutique ne propose que les moyens dont les clés sont présentes
    (`GET /api/payments/methods/`) : on peut ouvrir Wave avant Orange Money.
-3. Faire un vrai paiement de 100 FCFA avec chaque moyen, vérifier la commande
+3. Faire un vrai paiement de 100 FCFA (au moins 11 FCFA avec NabooPay) avec chaque moyen, vérifier la commande
    « payée », puis le rembourser depuis l'administration (Wave : remboursement
    automatique par l'API ; Orange Money : à faire depuis l'espace marchand
    Orange, puis valider dans l'administration).
