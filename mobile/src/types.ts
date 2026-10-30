@@ -289,6 +289,8 @@ export interface SubscriptionState {
     days_left: number | null;
     in_grace: boolean;
   } | null;
+  /** Essai gratuit : « pending » jusqu'à la validation de la boutique, puis « active » et « ended ». */
+  trial?: { status: "pending" | "active" | "ended"; ends_at: string | null; days_left: number };
 }
 
 /** Indicateurs des 30 derniers jours (commandes annulées exclues). */

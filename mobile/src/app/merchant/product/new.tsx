@@ -144,8 +144,8 @@ export default function NewProductScreen() {
         />
         {!kycVerified ? (
           <Text style={styles.note}>
-            Votre identité est en cours de vérification : le produit sera enregistré en brouillon, à publier une fois
-            votre compte validé.
+            Votre boutique est en cours de validation : le produit sera enregistré en brouillon et mis en ligne
+            automatiquement dès la validation.
           </Text>
         ) : null}
         {serverError ? <Text style={styles.error}>{serverError}</Text> : null}

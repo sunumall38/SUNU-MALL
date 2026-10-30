@@ -80,6 +80,13 @@ export default function MerchantDashboard() {
             action="Renouveler"
             onPress={() => router.push("/merchant/subscription")}
           />
+        ) : !account?.has_active_subscription && account?.trial?.status === "active" && account.trial.days_left <= 7 ? (
+          <Notice
+            tone="warning"
+            text={`Votre essai gratuit se termine dans ${account.trial.days_left} jour${account.trial.days_left > 1 ? "s" : ""}. Choisissez une formule pour continuer à vendre.`}
+            action="Voir les offres"
+            onPress={() => router.push("/merchant/subscription")}
+          />
         ) : null}
 
         <View style={styles.grid}>

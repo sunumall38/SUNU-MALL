@@ -22,8 +22,8 @@ export default function MerchantLayout() {
 }
 
 /**
- * Comme sur le site : l'identité doit avoir été envoyée, puis la boutique
- * créée. Les deux étapes se font ici, avant d'ouvrir l'espace vendeur.
+ * Comme sur le site : la boutique d'abord, puis la pièce d'identité. Les deux
+ * étapes se font ici ; ensuite l'espace s'ouvre, sans attendre la validation.
  */
 function MerchantGate() {
   const userId = useAuthStore((s) => s.user?.id);
@@ -69,30 +69,30 @@ function MerchantGate() {
     );
   }
 
-  if (!kycAllowsAccess(kyc)) {
+  if (!store) {
     return (
       <Onboarding
-        step="Étape 1 sur 2 — votre identité"
-        text={
-          kyc?.status === "REJECTED"
-            ? `Vos pièces ont été refusées${kyc.rejection_reason ? ` : ${kyc.rejection_reason}` : ""}. Envoyez-en de nouvelles.`
-            : "Pour vendre sur Sunu Mall, envoyez une pièce d'identité. Elle est vérifiée avec votre boutique."
-        }
+        step="Étape 1 sur 2 — votre boutique"
+        text="Présentez votre boutique. Vous enverrez ensuite une pièce d'identité : Sunu Mall vérifie les deux ensemble."
         onLogout={logout}
       >
-        <KycForm onDone={reload} />
+        <StoreForm defaultPhone={userPhone} submitLabel="Créer ma boutique" onSaved={reload} />
       </Onboarding>
     );
   }
 
-  if (!store) {
+  if (!kycAllowsAccess(kyc)) {
     return (
       <Onboarding
-        step="Étape 2 sur 2 — votre boutique"
-        text="Présentez votre boutique. Elle sera visible des clients dès sa validation par Sunu Mall."
+        step="Étape 2 sur 2 — votre identité"
+        text={
+          kyc?.status === "REJECTED"
+            ? `Vos pièces ont été refusées${kyc.rejection_reason ? ` : ${kyc.rejection_reason}` : ""}. Envoyez-en de nouvelles.`
+            : "Dernière étape : envoyez une pièce d'identité. Sunu Mall la vérifie avec votre boutique."
+        }
         onLogout={logout}
       >
-        <StoreForm defaultPhone={userPhone} submitLabel="Créer ma boutique" onSaved={reload} />
+        <KycForm onDone={reload} />
       </Onboarding>
     );
   }
@@ -145,6 +145,10 @@ function Onboarding({
           <Text style={styles.title}>{step}</Text>
           <Text style={styles.text}>{text}</Text>
           {children}
+          <Text style={styles.note}>
+            Pendant l'examen, vous pourrez préparer vos produits : ils seront mis en ligne dès la validation, et votre
+            essai gratuit de 30 jours commencera ce jour-là.
+          </Text>
           <Button label="Se déconnecter" variant="ghost" onPress={onLogout} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -205,4 +209,5 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: "800", color: colors.ink, textAlign: "center" },
   text: { fontSize: 15, lineHeight: 22, color: colors.mutedForeground, textAlign: "center" },
+  note: { fontSize: 13, lineHeight: 19, color: colors.mutedForeground, textAlign: "center" },
 });

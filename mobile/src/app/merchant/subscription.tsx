@@ -51,6 +51,8 @@ export default function SubscriptionScreen() {
 
   const current = account?.subscription ?? null;
   const active = Boolean(account?.has_active_subscription && current);
+  // Sans formule : l'essai gratuit, s'il n'est pas terminé.
+  const trial = !active && account?.trial?.status !== "ended" ? account?.trial : undefined;
 
   async function choose(plan: SubscriptionPlan) {
     setBusyPlan(plan.id);
@@ -75,10 +77,27 @@ export default function SubscriptionScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <View style={[styles.current, active ? styles.currentActive : styles.currentNone]}>
-        <Ionicons name={active ? "ribbon" : "alert-circle-outline"} size={26} color={active ? colors.success : colors.danger} />
+      <View style={[styles.current, active ? styles.currentActive : trial ? styles.currentTrial : styles.currentNone]}>
+        <Ionicons
+          name={active ? "ribbon" : trial ? "gift-outline" : "alert-circle-outline"}
+          size={26}
+          color={active ? colors.success : trial ? colors.orange : colors.danger}
+        />
         <View style={styles.flex}>
-          {active && current ? (
+          {trial ? (
+            <>
+              <Text style={styles.currentTitle}>
+                {trial.status === "pending"
+                  ? `Essai gratuit de ${trial.days_left} jours`
+                  : `Essai gratuit : ${trial.days_left} jour${trial.days_left > 1 ? "s" : ""} restant${trial.days_left > 1 ? "s" : ""}`}
+              </Text>
+              <Text style={styles.muted}>
+                {trial.status === "pending" || !trial.ends_at
+                  ? "Il commencera le jour où Sunu Mall validera votre boutique."
+                  : `Jusqu'au ${formatDate(trial.ends_at)}. Choisissez ensuite une formule pour continuer à vendre.`}
+              </Text>
+            </>
+          ) : active && current ? (
             <>
               <Text style={styles.currentTitle}>Formule {current.plan_name}</Text>
               <Text style={styles.muted}>
@@ -176,6 +195,7 @@ const styles = StyleSheet.create({
   current: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: radius.md, padding: 14 },
   currentActive: { backgroundColor: colors.successBg },
   currentNone: { backgroundColor: "#FEF2F2" },
+  currentTrial: { backgroundColor: colors.accent },
   currentTitle: { fontSize: 16, fontWeight: "800", color: colors.ink },
   sectionTitle: { fontSize: 17, fontWeight: "800", color: colors.ink, marginTop: 6 },
   methods: { flexDirection: "row", gap: 10 },
