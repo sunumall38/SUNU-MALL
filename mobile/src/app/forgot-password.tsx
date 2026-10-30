@@ -68,7 +68,6 @@ export default function ForgotPasswordScreen() {
               </Text>
               <TextField
                 label="Numéro de téléphone ou email"
-                placeholder="77 123 45 67 ou nom@email.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}

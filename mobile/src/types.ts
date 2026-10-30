@@ -215,6 +215,8 @@ export interface OrderDelivery {
   reference: string;
   status: string;
   delivered_at: string | null;
+  driver_detail?: { full_name: string; phone: string; vehicle_type: string } | null;
+  eta_seconds?: number | null;
 }
 
 /** Commande d'une boutique (ou sous-commande d'une commande globale). */

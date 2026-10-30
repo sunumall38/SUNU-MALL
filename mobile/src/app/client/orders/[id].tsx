@@ -1,10 +1,9 @@
-import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Button } from "@/components/Button";
+import { DeliveryTracker } from "@/components/DeliveryTracker";
 import { apiErrorMessage } from "@/lib/api";
-import { SITE_URL } from "@/lib/config";
 import { formatPrice } from "@/lib/format";
 import { formatDate, summarizeGlobalOrder, summarizeOrder } from "@/lib/orderStatus";
 import { getGlobalOrder, getOrder } from "@/lib/orders";
@@ -63,7 +62,6 @@ export default function OrderDetailScreen() {
       ? data.order.orders.map((o) => ({ store: o.store_name, items: o.items }))
       : [{ store: data.order.store_name, items: data.order.items }];
   const itemsTotal = data.kind === "global" ? Number(data.order.items_total) : Number(order.total_amount) - Number(order.delivery_fee);
-  const trackingUrl = `${SITE_URL}/tracking?${data.kind === "global" ? "gorder" : "order"}=${order.id}`;
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
@@ -109,8 +107,10 @@ export default function OrderDetailScreen() {
             {order.address_detail.street}, {order.address_detail.city}
           </Text>
         ) : null}
-        {order.status !== "pending" && order.status !== "cancelled" ? (
-          <Button label="Suivre la livraison sur le site" variant="ghost" onPress={() => Linking.openURL(trackingUrl)} />
+        {order.delivery && order.status !== "pending" && order.status !== "cancelled" ? (
+          <View style={styles.tracker}>
+            <DeliveryTracker delivery={order.delivery} refresh={load} />
+          </View>
         ) : null}
       </View>
 
@@ -156,6 +156,7 @@ const styles = StyleSheet.create({
   itemPrice: { fontSize: 14, fontWeight: "700", color: colors.ink },
   value: { fontSize: 14, fontWeight: "600", color: colors.ink },
   divider: { height: 1, backgroundColor: colors.border },
+  tracker: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12, marginTop: 4 },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
   rowStrong: { fontSize: 17, fontWeight: "800", color: colors.ink },
 });

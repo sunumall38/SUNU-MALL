@@ -1,11 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Linking from "expo-linking";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
-import { SITE_URL } from "@/lib/config";
 import { formatPrice, timeAgo } from "@/lib/format";
 import { getStoreSummary, listStoreOrders } from "@/lib/merchant";
 import { needsAction, orderItemsAmount } from "@/lib/merchantOrders";
@@ -73,14 +71,14 @@ export default function MerchantDashboard() {
             tone="danger"
             text="Vous n'avez pas d'abonnement actif : la création de nouveaux produits est suspendue."
             action="Voir les offres"
-            onPress={() => Linking.openURL(`${SITE_URL}/subscriptions`)}
+            onPress={() => router.push("/merchant/subscription")}
           />
         ) : account?.subscription?.in_grace ? (
           <Notice
             tone="warning"
             text="Votre abonnement a expiré : vous êtes en période de grâce. Renouvelez-le pour continuer à vendre."
             action="Renouveler"
-            onPress={() => Linking.openURL(`${SITE_URL}/subscriptions`)}
+            onPress={() => router.push("/merchant/subscription")}
           />
         ) : null}
 
@@ -178,8 +176,8 @@ function StoreBanners({ store }: { store: OwnStore }) {
       <Notice
         tone="danger"
         text={`Boutique refusée : ${store.rejection_reason}`}
-        action="Corriger ma boutique sur le site"
-        onPress={() => Linking.openURL(`${SITE_URL}/create-shop`)}
+        action="Corriger ma boutique"
+        onPress={() => router.push("/merchant/store")}
       />
     );
   }

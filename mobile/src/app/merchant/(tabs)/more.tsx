@@ -1,11 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
-import { SITE_URL } from "@/lib/config";
 import { mediaUrl } from "@/lib/format";
 import { useAuthStore } from "@/store/auth";
 import { useMerchantStore } from "@/store/merchant";
@@ -13,8 +11,6 @@ import { colors, radius, shadow } from "@/theme";
 import type { OwnStore } from "@/types";
 
 type MenuItem = { icon: keyof typeof Ionicons.glyphMap; label: string; hint?: string; onPress: () => void };
-
-const site = (path: string) => () => Linking.openURL(`${SITE_URL}${path}`);
 
 function storeBadge(store: OwnStore) {
   if (store.status === "active") return { label: "Active", color: colors.success, background: colors.successBg };
@@ -35,12 +31,11 @@ export default function MerchantMoreScreen() {
       icon: "ribbon-outline",
       label: "Mon abonnement",
       hint: account?.subscription ? account.subscription.plan_name : "Aucun abonnement actif",
-      onPress: site("/subscriptions"),
+      onPress: () => router.push("/merchant/subscription"),
     },
-    { icon: "megaphone-outline", label: "Promotions", hint: "Mettre un produit en avant", onPress: site("/promotions") },
+    { icon: "megaphone-outline", label: "Promotions", hint: "Mettre un produit en avant", onPress: () => router.push("/merchant/promotions") },
     { icon: "notifications-outline", label: "Notifications", onPress: () => router.push("/merchant/notifications") },
-    { icon: "settings-outline", label: "Paramètres de la boutique", hint: "Logo, horaires", onPress: site("/store-settings") },
-    { icon: "help-circle-outline", label: "Aide", onPress: site("/support") },
+    { icon: "help-circle-outline", label: "Aide et support", onPress: () => router.push("/support") },
   ];
 
   return (
@@ -48,7 +43,7 @@ export default function MerchantMoreScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Plus</Text>
 
-        <Pressable accessibilityRole="button" onPress={site("/create-shop")} style={styles.storeCard}>
+        <Pressable accessibilityRole="button" onPress={() => router.push("/merchant/store")} style={styles.storeCard}>
           <View style={styles.logo}>
             {logo ? (
               <Image source={{ uri: logo }} style={styles.logoImage} />
@@ -61,7 +56,7 @@ export default function MerchantMoreScreen() {
             <Text style={styles.storeName} numberOfLines={1}>
               {store.name}
             </Text>
-            <Text style={styles.small}>Gérer ma boutique sur le site</Text>
+            <Text style={styles.small}>Logo, bannière et informations</Text>
           </View>
           <Badge label={badge.label} color={badge.color} background={badge.background} />
         </Pressable>

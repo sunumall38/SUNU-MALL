@@ -5,9 +5,9 @@ affiché dépend du rôle, comme sur le site.
 
 | Compte | Dans l'appli |
 |---|---|
-| Visiteur | Écran d'accueil, puis catalogue, recherche, boutiques et fiches produit sans compte ; connexion demandée pour acheter |
+| Visiteur | Écran d'accueil, puis catalogue, recherche, boutiques et fiches produit sans compte ; inscription (client ou vendeur) et connexion par numéro ou email dans l'appli |
 | Client | Onglets Accueil, Recherche, Panier, Commandes, Profil ; commande et paiement Wave / Orange Money (`src/app/client/`) |
-| Commerçant | Onglets Accueil (tableau de bord), Commandes, Produits (ajout avec photos), Statistiques, Plus (`src/app/merchant/`). Pièces d'identité, création de la boutique, abonnement et retraits restent sur le site |
+| Commerçant | Ouverture de l'espace (pièces d'identité, création de la boutique), puis Accueil (tableau de bord), Commandes, Produits (ajout avec photos), Statistiques, Plus : ma boutique, abonnement payé dans l'appli, promotions, portefeuille et retraits (`src/app/merchant/`) |
 | Livreur | Espace livreur (`src/app/driver/`) — provisoire, renvoie vers le site |
 | Partenaire, admin | Écran « votre espace est sur le site » |
 | Mot de passe provisoire | Changement obligatoire avant tout (`src/app/change-password.tsx`) |
@@ -52,6 +52,8 @@ src/
 │   ├── _layout.tsx         # Racine : charge la session enregistrée
 │   ├── index.tsx           # Aiguillage : connexion ou espace du compte
 │   ├── welcome.tsx         # Écran d'accueil du visiteur
+│   ├── register.tsx, verify-pending.tsx, forgot-password.tsx
+│   ├── support/            # Aide et support (tous les comptes)
 │   ├── login.tsx
 │   ├── change-password.tsx
 │   ├── web-only.tsx

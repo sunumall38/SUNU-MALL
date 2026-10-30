@@ -1,5 +1,5 @@
 import { apiGet, apiPost } from "@/lib/api";
-import type { Address, CheckoutPayload, CreatedOrder, DeliveryType, GlobalOrder, Order, Paginated } from "@/types";
+import type { Address, CheckoutPayload, CreatedOrder, DeliveryType, GlobalOrder, Order, OrderDelivery, Paginated } from "@/types";
 
 export async function listAddresses() {
   const data = await apiGet<Paginated<Address>>("/orders/addresses/");
@@ -51,6 +51,11 @@ export async function listGlobalOrders() {
 
 export function getOrder(id: string) {
   return apiGet<Order>(`/orders/${id}/`);
+}
+
+/** Le client valide la réception avec le code remis par le livreur. */
+export function confirmDelivery(deliveryId: string, code: string) {
+  return apiPost<OrderDelivery>(`/orders/deliveries/${deliveryId}/confirm/`, { code });
 }
 
 export function getGlobalOrder(id: string) {

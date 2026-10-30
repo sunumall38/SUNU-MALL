@@ -96,3 +96,23 @@ export function formatDate(iso: string) {
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
+
+/** Statuts de course en français (mêmes libellés que le site). */
+export const DELIVERY_STATUS_LABEL: Record<string, string> = {
+  pending: "En attente d'un livreur",
+  assigned: "Livreur affecté",
+  accepted: "Livreur en route vers la boutique",
+  pickup_pending: "Livreur en route vers la boutique",
+  picked_up: "Colis récupéré",
+  in_transit: "En route vers vous",
+  out_for_delivery: "Le livreur arrive",
+  delivered: "Livrée",
+  delivery_failed: "Échec de livraison",
+  customer_unavailable: "Vous étiez absent",
+  return_requested: "Retour demandé",
+  returned: "Retournée à la boutique",
+  cancelled: "Annulée",
+};
+
+/** Le colis est entre les mains du livreur : le client peut confirmer la réception avec le code. */
+export const HANDOVER_STATUSES = new Set(["picked_up", "in_transit", "out_for_delivery"]);

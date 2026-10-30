@@ -1,11 +1,10 @@
-import * as Linking from "expo-linking";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Button } from "@/components/Button";
+import { TextField } from "@/components/TextField";
 import { apiErrorMessage } from "@/lib/api";
-import { SITE_URL } from "@/lib/config";
 import { formatPrice } from "@/lib/format";
-import { getWallet } from "@/lib/merchant";
+import { getWallet, requestPayout } from "@/lib/merchant";
 import { formatDate } from "@/lib/orderStatus";
 import { colors, radius, shadow } from "@/theme";
 import type { SellerWallet, WalletTransaction } from "@/types";
@@ -88,7 +87,7 @@ export default function WalletScreen() {
         </View>
       </View>
 
-      <Button label="Demander un retrait sur le site" variant="secondary" onPress={() => Linking.openURL(`${SITE_URL}/merchant-wallet`)} />
+      <PayoutForm available={Number(wallet.available_balance)} onDone={load} />
 
       <Text style={styles.sectionTitle}>Derniers mouvements</Text>
       <View style={styles.card}>
@@ -119,6 +118,80 @@ export default function WalletScreen() {
   );
 }
 
+/** Retrait du solde disponible vers Wave ou Orange Money. */
+function PayoutForm({ available, onDone }: { available: number; onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState<"wave" | "orange_money">("wave");
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  if (!open) {
+    return (
+      <Button
+        label="Demander un retrait"
+        variant="secondary"
+        disabled={available <= 0}
+        onPress={() => {
+          setOpen(true);
+          setAmount(String(Math.floor(available)));
+          setMessage(null);
+        }}
+      />
+    );
+  }
+
+  async function submit() {
+    const value = Number(amount.replace(/[\s\u202f.]/g, ""));
+    if (!Number.isInteger(value) || value <= 0 || value > available) {
+      setMessage({ text: `Montant entre 1 et ${formatPrice(available)}.`, error: true });
+      return;
+    }
+    setSubmitting(true);
+    setMessage(null);
+    try {
+      await requestPayout(value, method);
+      await onDone();
+      setOpen(false);
+      setMessage({ text: "Demande envoyée : Sunu Mall vous verse le montant sous peu.", error: false });
+    } catch (err) {
+      setMessage({ text: apiErrorMessage(err, "Demande impossible pour le moment."), error: true });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.payout}>
+        <TextField label="Montant (FCFA)" keyboardType="number-pad" value={amount} onChangeText={setAmount} />
+        <View style={styles.methods}>
+          {(["wave", "orange_money"] as const).map((id) => {
+            const selected = id === method;
+            return (
+              <Pressable
+                key={id}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                onPress={() => setMethod(id)}
+                style={[styles.method, selected && styles.methodSelected]}
+              >
+                <Text style={[styles.methodText, selected && styles.methodTextSelected]}>
+                  {id === "wave" ? "Wave" : "Orange Money"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.muted}>Le retrait est versé sur le numéro de votre compte.</Text>
+        {message ? <Text style={message.error ? styles.payoutError : styles.payoutOk}>{message.text}</Text> : null}
+        <Button label="Confirmer le retrait" onPress={submit} loading={submitting} />
+        <Button label="Annuler" variant="ghost" onPress={() => setOpen(false)} />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   flex: { flex: 1 },
@@ -138,4 +211,19 @@ const styles = StyleSheet.create({
   divider: { borderTopWidth: 1, borderTopColor: colors.border },
   txLabel: { fontSize: 14, fontWeight: "700", color: colors.ink },
   txAmount: { fontSize: 14, fontWeight: "800" },
+  payout: { gap: 12, paddingVertical: 10 },
+  methods: { flexDirection: "row", gap: 10 },
+  method: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 10,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  methodSelected: { borderColor: colors.orange, backgroundColor: colors.accent },
+  methodText: { fontSize: 14, fontWeight: "600", color: colors.ink },
+  methodTextSelected: { color: colors.orangeDark },
+  payoutError: { fontSize: 13, color: colors.danger },
+  payoutOk: { fontSize: 13, color: colors.success },
 });

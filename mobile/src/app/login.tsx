@@ -66,7 +66,6 @@ export default function LoginScreen() {
           <View style={styles.form}>
             <TextField
               label="Numéro de téléphone ou email"
-              placeholder="77 123 45 67 ou nom@email.com"
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}

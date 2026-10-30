@@ -1,12 +1,10 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Linking from "expo-linking";
 import { router, type Href } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { LoginPrompt } from "@/components/EmptyState";
 import { Logo } from "@/components/Logo";
-import { SITE_URL } from "@/lib/config";
 import { useAuthStore } from "@/store/auth";
 import { colors, radius, shadow } from "@/theme";
 
@@ -42,7 +40,7 @@ export default function ProfileScreen() {
     { icon: "heart-outline", label: "Mes favoris", onPress: go("/client/favorites") },
     { icon: "notifications-outline", label: "Notifications", onPress: go("/client/notifications") },
     { icon: "storefront-outline", label: "Boutiques", onPress: go("/client/shops") },
-    { icon: "help-circle-outline", label: "Aide", onPress: () => Linking.openURL(`${SITE_URL}/contact`) },
+    { icon: "help-circle-outline", label: "Aide et support", onPress: go("/support") },
   ];
 
   return (

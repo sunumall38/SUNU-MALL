@@ -140,3 +140,130 @@ export function uploadProductImage(productId: string, photo: { uri: string; file
 export function getWallet() {
   return apiGet<SellerWallet>("/commissions/wallet/me/");
 }
+
+export type KycDocumentType = "cni" | "passeport" | "permis" | "titre_sejour" | "autre";
+
+export const KYC_DOCUMENT_TYPES: { id: KycDocumentType; label: string }[] = [
+  { id: "cni", label: "Carte d'identité" },
+  { id: "passeport", label: "Passeport" },
+  { id: "permis", label: "Permis" },
+  { id: "titre_sejour", label: "Titre de séjour" },
+  { id: "autre", label: "Autre" },
+];
+
+function photoPart(photo: { uri: string; fileName?: string | null; mimeType?: string | null }, fallback: string) {
+  return { uri: photo.uri, name: photo.fileName ?? fallback, type: photo.mimeType ?? "image/jpeg" } as unknown as Blob;
+}
+
+/** Dossier d'identité du vendeur : pièce recto / verso (moins de 8 Mo chacune). */
+export function submitKyc(payload: {
+  documentType: KycDocumentType;
+  front: { uri: string; fileName?: string | null; mimeType?: string | null };
+  back: { uri: string; fileName?: string | null; mimeType?: string | null };
+  address: string;
+}) {
+  const form = new FormData();
+  form.append("document_type", payload.documentType);
+  form.append("document_front", photoPart(payload.front, "recto.jpg"));
+  form.append("document_back", photoPart(payload.back, "verso.jpg"));
+  if (payload.address) form.append("address", payload.address);
+  return apiPost<SellerKyc>("/kyc/seller-kyc/submit/", form);
+}
+
+export function listStoreCategories() {
+  return apiGet<{ id: number; name: string }[]>("/catalog/store-categories/");
+}
+
+export interface StorePayload {
+  name: string;
+  category: number;
+  phone: string;
+  description: string;
+  address: string;
+  city: string;
+}
+
+/** Création de la boutique (elle reste « en attente » jusqu'à la validation). */
+export function createStore(payload: StorePayload) {
+  return apiPost<OwnStore>("/catalog/stores/", payload);
+}
+
+/** Modification ; une boutique refusée repart en examen. */
+export function updateStore(id: string, payload: Partial<StorePayload>) {
+  return apiPatch<OwnStore>(`/catalog/stores/${id}/`, payload);
+}
+
+export function uploadStoreImage(
+  id: string,
+  kind: "logo" | "banner",
+  photo: { uri: string; fileName?: string | null; mimeType?: string | null },
+) {
+  const form = new FormData();
+  form.append(kind, photoPart(photo, `${kind}.jpg`));
+  return apiPost<OwnStore>(`/catalog/stores/${id}/${kind}/`, form);
+}
+
+/** Retrait du solde disponible vers Wave ou Orange Money (débité tout de suite, versé par Sunu Mall). */
+export function requestPayout(amount: number, method: "wave" | "orange_money") {
+  return apiPost<{ id: string; amount: string; status: string }>("/commissions/payouts/", { amount, method });
+}
+
+export interface SubscriptionPlan {
+  id: number;
+  code: string;
+  name: string;
+  price: string;
+  billing_cycle: string;
+  max_products: number | null;
+  commission_rate: string;
+  duration_days: number;
+}
+
+export async function listPlans() {
+  const data = await apiGet<Paginated<SubscriptionPlan>>("/monetization/subscription-plans/");
+  return data.results;
+}
+
+type PayMethod = "wave" | "orange_money";
+
+/** Première souscription : renvoie le paiement à régler. */
+export function subscribe(planId: number, method: PayMethod) {
+  return apiPost<{ payment: { id: string } | null }>(`/monetization/subscription-plans/${planId}/subscribe/`, {
+    payment_method: method,
+  });
+}
+
+export function renewSubscription(method: PayMethod) {
+  return apiPost<{ payment: { id: string } }>("/monetization/subscriptions/renew/", { payment_method: method });
+}
+
+export function changePlan(planCode: string, method: PayMethod) {
+  return apiPost<{ payment: { id: string } }>("/monetization/subscriptions/change-plan/", {
+    plan_code: planCode,
+    payment_method: method,
+  });
+}
+
+export interface SponsoredProduct {
+  id: string;
+  product: string;
+  store: string;
+  daily_budget: string;
+  starts_at: string;
+  ends_at: string;
+  status: "active" | "inactive" | "expired";
+}
+
+export async function listPromotions() {
+  const data = await apiGet<Paginated<SponsoredProduct> | SponsoredProduct[]>("/monetization/sponsored-products/");
+  return Array.isArray(data) ? data : data.results;
+}
+
+/** Met un produit en avant sur l'accueil (section « Promotions ») entre deux dates. */
+export function createPromotion(payload: { product: string; store: string; daily_budget: number; starts_at: string; ends_at: string }) {
+  return apiPost<SponsoredProduct>("/monetization/sponsored-products/", { ...payload, status: "active" });
+}
+
+export function stopPromotion(id: string) {
+  return apiPatch<SponsoredProduct>(`/monetization/sponsored-products/${id}/`, { status: "inactive" });
+}

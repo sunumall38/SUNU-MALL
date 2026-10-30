@@ -1,13 +1,13 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import * as Linking from "expo-linking";
-import { Stack } from "expo-router";
-import { useEffect } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router, Stack } from "expo-router";
+import { useEffect, type ReactNode } from "react";
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
+import { KycForm } from "@/components/KycForm";
 import { Logo } from "@/components/Logo";
 import { RoleGate } from "@/components/RoleGate";
-import { SITE_URL } from "@/lib/config";
+import { StoreForm } from "@/components/StoreForm";
 import { useAuthStore } from "@/store/auth";
 import { kycAllowsAccess, useMerchantStore } from "@/store/merchant";
 import { colors } from "@/theme";
@@ -23,11 +23,11 @@ export default function MerchantLayout() {
 
 /**
  * Comme sur le site : l'identité doit avoir été envoyée, puis la boutique
- * créée. Ces deux étapes (pièces d'identité, formulaire boutique) se font
- * sur le site pour l'instant.
+ * créée. Les deux étapes se font ici, avant d'ouvrir l'espace vendeur.
  */
 function MerchantGate() {
   const userId = useAuthStore((s) => s.user?.id);
+  const userPhone = useAuthStore((s) => s.user?.phone ?? "");
   const logout = useAuthStore((s) => s.logout);
   const { loaded, error, store, kyc, load, reset } = useMerchantStore();
 
@@ -52,36 +52,48 @@ function MerchantGate() {
     );
   }
 
-  if (!kycAllowsAccess(kyc)) {
-    const restricted = kyc?.status === "SUSPENDED" || kyc?.status === "BLOCKED";
+  const reload = () => {
+    if (userId) void load(userId);
+  };
+
+  if (kyc?.status === "SUSPENDED" || kyc?.status === "BLOCKED") {
     return (
       <Blocked
         icon="id-card-outline"
-        title={restricted ? "Compte vendeur restreint" : "Étape 1 sur 2 — votre identité"}
-        text={
-          restricted
-            ? "Votre compte vendeur est restreint. Contactez le support Sunu Mall."
-            : kyc?.status === "REJECTED"
-              ? `Vos pièces ont été refusées${kyc.rejection_reason ? ` : ${kyc.rejection_reason}` : ""}. Renvoyez-les depuis le site.`
-              : "Envoyez votre pièce d'identité depuis le site pour ouvrir votre espace boutique."
-        }
-        action={restricted ? "Contacter le support" : "Envoyer mes pièces sur le site"}
-        url={restricted ? `${SITE_URL}/contact` : `${SITE_URL}/merchant`}
+        title="Compte vendeur restreint"
+        text="Votre compte vendeur est restreint. Contactez le support Sunu Mall."
+        action="Contacter le support"
+        onAction={() => router.push("/support")}
         onLogout={logout}
       />
     );
   }
 
+  if (!kycAllowsAccess(kyc)) {
+    return (
+      <Onboarding
+        step="Étape 1 sur 2 — votre identité"
+        text={
+          kyc?.status === "REJECTED"
+            ? `Vos pièces ont été refusées${kyc.rejection_reason ? ` : ${kyc.rejection_reason}` : ""}. Envoyez-en de nouvelles.`
+            : "Pour vendre sur Sunu Mall, envoyez une pièce d'identité. Elle est vérifiée avec votre boutique."
+        }
+        onLogout={logout}
+      >
+        <KycForm onDone={reload} />
+      </Onboarding>
+    );
+  }
+
   if (!store) {
     return (
-      <Blocked
-        icon="storefront-outline"
-        title="Étape 2 sur 2 — votre boutique"
-        text="Vous n'avez pas encore de boutique. Créez-la sur le site : nom, catégorie, adresse et téléphone."
-        action="Créer ma boutique sur le site"
-        url={`${SITE_URL}/create-shop`}
+      <Onboarding
+        step="Étape 2 sur 2 — votre boutique"
+        text="Présentez votre boutique. Elle sera visible des clients dès sa validation par Sunu Mall."
         onLogout={logout}
-      />
+      >
+        <StoreForm defaultPhone={userPhone} submitLabel="Créer ma boutique" onSaved={reload} />
+      </Onboarding>
     );
   }
 
@@ -101,8 +113,42 @@ function MerchantGate() {
       <Stack.Screen name="product/new" options={{ title: "Ajouter un produit" }} />
       <Stack.Screen name="product/[id]" options={{ title: "Produit" }} />
       <Stack.Screen name="wallet" options={{ title: "Portefeuille" }} />
+      <Stack.Screen name="store" options={{ title: "Ma boutique" }} />
+      <Stack.Screen name="subscription" options={{ title: "Mon abonnement" }} />
+      <Stack.Screen name="payment/[id]" options={{ title: "Paiement" }} />
+      <Stack.Screen name="promotions" options={{ title: "Promotions" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
     </Stack>
+  );
+}
+
+/** Étapes d'ouverture de l'espace vendeur, avec leur formulaire. */
+function Onboarding({
+  step,
+  text,
+  onLogout,
+  children,
+}: {
+  step: string;
+  text: string;
+  onLogout: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.onboarding} keyboardShouldPersistTaps="handled">
+          <View style={styles.logo}>
+            <Logo size={48} stacked />
+            <Text style={styles.space}>Espace boutique</Text>
+          </View>
+          <Text style={styles.title}>{step}</Text>
+          <Text style={styles.text}>{text}</Text>
+          {children}
+          <Button label="Se déconnecter" variant="ghost" onPress={onLogout} />
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -111,14 +157,14 @@ function Blocked({
   title,
   text,
   action,
-  url,
+  onAction,
   onLogout,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   text: string;
   action: string;
-  url: string;
+  onAction: () => void;
   onLogout: () => void;
 }) {
   return (
@@ -133,7 +179,7 @@ function Blocked({
         </View>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.text}>{text}</Text>
-        <Button label={action} onPress={() => Linking.openURL(url)} />
+        <Button label={action} onPress={onAction} />
         <Button label="Se déconnecter" variant="ghost" onPress={onLogout} />
       </ScrollView>
     </SafeAreaView>
@@ -143,6 +189,8 @@ function Blocked({
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24, backgroundColor: colors.background },
   safe: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  onboarding: { padding: 24, gap: 14 },
   content: { flexGrow: 1, justifyContent: "center", padding: 28, gap: 14 },
   logo: { alignItems: "center", gap: 4, marginBottom: 16 },
   space: { fontSize: 18, fontWeight: "700", color: colors.navy },
