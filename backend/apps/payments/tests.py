@@ -718,3 +718,34 @@ class OrangeMoneyRetryAndStatusTests(TestCase):
             OrangeMoneyGateway().initiate(self.payment)
             self.payment.refresh_from_db()
             self.assertEqual(OrangeMoneyGateway().fetch_status(self.payment), FAILED)
+
+
+@override_settings(**REAL_GATEWAYS)
+class PaymentReturnToAppTests(TestCase):
+    """Paiement lancé depuis l'appli mobile : la page de retour renvoie vers l'appli."""
+
+    def setUp(self):
+        self.customer, self.payment = _order_payment()
+        self.client = APIClient()
+        self.client.force_authenticate(self.customer)
+
+    def _initiate(self, body=None):
+        session = {"id": "cos-new", "wave_launch_url": "https://pay.wave.test/c/cos-new"}
+        with mock.patch("apps.payments.gateways.requests.post", return_value=FakeResponse(session)) as post:
+            response = self.client.post(f"/api/payments/{self.payment.id}/initiate/", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return post.call_args.kwargs["json"]
+
+    def test_app_payment_returns_to_app(self):
+        sent = self._initiate({"return_to": "app"})
+        back = f"https://shop.test/paiement/retour?payment={self.payment.id}&app=1"
+        self.assertEqual(sent["success_url"], back)
+        self.assertEqual(sent["error_url"], f"{back}&error=1")
+
+    def test_site_payment_after_app_attempt_returns_to_site(self):
+        self.payment.metadata = {"return_to": "app"}
+        self.payment.save(update_fields=["metadata"])
+        sent = self._initiate()
+        self.assertEqual(sent["success_url"], f"https://shop.test/paiement/retour?payment={self.payment.id}")
+        self.payment.refresh_from_db()
+        self.assertNotIn("return_to", self.payment.metadata)

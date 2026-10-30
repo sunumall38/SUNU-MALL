@@ -43,8 +43,14 @@ def _payment_return_url(payment):
     multi-boutiques, abonnement) : elle interroge l'API sur le statut réel du
     paiement — le retour navigateur n'est jamais une preuve de paiement — puis
     redirige vers la bonne page.
+
+    Paiement lancé depuis l'appli mobile : ``&app=1`` fait afficher à cette
+    page « revenez dans l'appli » (le navigateur n'y est pas connecté).
     """
-    return f"{settings.FRONTEND_URL.rstrip('/')}/paiement/retour?payment={payment.id}"
+    url = f"{settings.FRONTEND_URL.rstrip('/')}/paiement/retour?payment={payment.id}"
+    if (payment.metadata or {}).get("return_to") == "app":
+        url += "&app=1"
+    return url
 
 
 def _payment_cancel_url(payment):
