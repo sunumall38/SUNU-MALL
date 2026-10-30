@@ -61,6 +61,33 @@ def test_admin_dashboard_stats_returns_counts(client):
 
 
 @pytest.mark.django_db
+def test_admin_dashboard_stats_covers_the_analytics_page(client):
+    """La page Analytics lit commandes, paiements, plaintes et abonnements :
+    sans ces blocs, elle plantait (« Cannot read properties of undefined »)."""
+    admin_user = User.objects.create_user(
+        username="admin-analytics",
+        email="admin-analytics@example.com",
+        password="secret123",
+    )
+    admin_role, _ = Role.objects.get_or_create(name=Role.RoleName.ADMIN, defaults={"description": "Administrateur"})
+    UserRole.objects.get_or_create(user=admin_user, role=admin_role)
+
+    client.force_login(admin_user)
+    payload = client.get("/api/users/admin/dashboard/stats/?days=30").json()
+
+    assert set(payload["orders"]) == {"total", "pending", "delivered", "cancelled"}
+    assert set(payload["payments"]) == {"total", "success", "failed", "revenue"}
+    assert set(payload["complaints"]) == {"total", "open", "resolved"}
+    assert set(payload["subscriptions"]) == {"total", "active", "expiring"}
+    assert len(payload["trend"]["new_orders"]) == 30
+    assert len(payload["trend"]["new_users"]) == 30
+
+    # Période invalide ou hors bornes : valeur par défaut, puis plafond d'un an.
+    assert len(client.get("/api/users/admin/dashboard/stats/?days=abc").json()["trend"]["new_users"]) == 14
+    assert len(client.get("/api/users/admin/dashboard/stats/?days=5000").json()["trend"]["new_users"]) == 365
+
+
+@pytest.mark.django_db
 def test_admin_can_approve_store(client):
     admin_user = User.objects.create_user(
         username="admin-store-approve",
