@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ImagePlus, Store as StoreIcon, TriangleAlert } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
+import * as kycApi from "@/api/kyc";
 import * as monetizationApi from "@/api/monetization";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
@@ -34,6 +35,10 @@ export default function AddProductPage() {
   const { data: own, loading: loadingStores } = useAsync(() => catalogApi.listMyStores(), []);
   const { data: categories } = useAsync(() => catalogApi.listCategories(), []);
   const { data: account } = useAsync(() => monetizationApi.getMySubscriptionState(), []);
+  // Dossier pas encore validé : le produit attend en brouillon et sera mis en
+  // ligne à la validation (le serveur refuserait de le publier).
+  const { data: kyc, loading: loadingKyc } = useAsync(() => kycApi.getMySellerKyc().catch(() => null), []);
+  const verified = kyc?.status === "VERIFIED";
   const [error, setError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -62,7 +67,7 @@ export default function AddProductPage() {
         name: values.name,
         description: values.description,
         base_price: values.base_price,
-        status: "active",
+        status: verified ? "active" : "draft",
       });
       await catalogApi.createVariant({
         product: product.id,
@@ -161,8 +166,14 @@ export default function AddProductPage() {
               {error}
             </div>
           )}
-          <Button type="submit" loading={isSubmitting}>
-            Publier le produit
+          {!loadingKyc && !verified && (
+            <p className="rounded-lg border border-orange/20 bg-orange/5 px-3.5 py-2.5 text-sm text-muted-foreground">
+              Votre boutique est en cours de validation : ce produit sera enregistré en brouillon et mis en ligne
+              automatiquement dès la validation.
+            </p>
+          )}
+          <Button type="submit" loading={isSubmitting} disabled={loadingKyc}>
+            {verified ? "Publier le produit" : "Enregistrer en brouillon"}
           </Button>
         </form>
       </Card>

@@ -430,14 +430,9 @@ class StoreViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        # Parcours vendeur : pièce d'identité d'abord, boutique ensuite. Les
+        # Parcours vendeur : boutique d'abord, pièce d'identité ensuite. Les
         # deux sont examinées ensemble par l'administration (approve/reject).
         user = self.request.user
-        if not user.is_admin() and not seller_kyc_submitted(user):
-            raise PermissionDenied(
-                "Envoyez d'abord votre pièce d'identité depuis votre espace vendeur : "
-                "l'administration l'examinera en même temps que votre boutique."
-            )
         # Règle « 1 vendeur = 1 boutique » (spec §1) : appliquée côté backend,
         # jamais dans le frontend. Un commerçant ne peut posséder qu'une seule
         # boutique, quel que soit son statut (active, en attente, suspendue) —
@@ -456,7 +451,10 @@ class StoreViewSet(viewsets.ModelViewSet):
             # de l'administration, quel que soit le `status` envoyé.
             extra["status"] = Store.Status.INACTIVE
         store = serializer.save(owner=self.request.user, **extra)
-        notify_admin_store_created(store)
+        # Dossier incomplet tant que la pièce n'est pas envoyée : l'administration
+        # sera prévenue à son envoi (kyc submit).
+        if user.is_admin() or seller_kyc_submitted(user):
+            notify_admin_store_created(store)
 
     def perform_update(self, serializer):
         store = self.get_object()
@@ -554,20 +552,46 @@ class StoreViewSet(viewsets.ModelViewSet):
                 "detail": "Le vendeur n'a pas de pièce d'identité en attente : "
                           "impossible de valider son dossier pour l'instant.",
             })
+        first_validation = kyc is not None and kyc.status != SellerKYC.Status.VERIFIED
+        published = 0
         with transaction.atomic():
             store.status = Store.Status.ACTIVE
             store.rejection_reason = ""
             store.save()
-            if kyc is not None and kyc.status != SellerKYC.Status.VERIFIED:
+            if first_validation:
                 previous_status = kyc.status
+                # Démarre aussi l'essai gratuit du vendeur (SellerKYC.mark_verified).
                 kyc.mark_verified()
                 VerificationHistory.record(kyc, SellerKYC.Status.VERIFIED, request.user,
                                            previous_status=previous_status)
                 record_kyc_audit(request.user, kyc, "ADMIN_APPROVE_SELLER_KYC")
+                # Les produits préparés pendant l'examen passent en ligne
+                # (ceux qui ont un prix, c'est-à-dire une variante).
+                drafts = store.products.filter(status=Product.Status.DRAFT, variants__isnull=False).distinct()
+                for product in drafts:
+                    product.status = Product.Status.ACTIVE
+                    product.save(update_fields=["status", "updated_at"])
+                    published += 1
         subject = "Votre compte vendeur est validé"
         message = (
             f"Bonjour {store.owner.first_name},\n\n"
             f"Votre identité et votre boutique '{store.name}' ont été validées par SUNU MALL.\n\n"
+        )
+        if published == 1:
+            message += "Votre produit en brouillon est maintenant en ligne.\n\n"
+        elif published > 1:
+            message += f"Vos {published} produits en brouillon sont maintenant en ligne.\n\n"
+        if first_validation:
+            from apps.commissions.models import SellerSubscription
+
+            entitlement = SellerSubscription.get_or_create_for(store.owner)
+            if entitlement.trial_active():
+                ends = timezone.localdate(entitlement.trial_ends_at).strftime("%d/%m/%Y")
+                message += (
+                    f"Votre essai gratuit commence aujourd'hui, jusqu'au {ends}. Vous choisirez "
+                    "ensuite une formule depuis votre espace vendeur.\n\n"
+                )
+        message += (
             "Vous pouvez dès maintenant publier vos produits et recevoir des commandes "
             "depuis votre espace vendeur."
         )

@@ -1,4 +1,4 @@
-import { Clock, Crown, History, RefreshCcw, Repeat, TriangleAlert } from "lucide-react";
+import { Clock, Crown, Gift, History, RefreshCcw, Repeat, TriangleAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { SubscriptionState } from "@/api/monetization";
 import { Badge } from "@/components/ui/Badge";
@@ -29,7 +29,30 @@ export function SubscriptionStatusCard({
   onCancel?: () => void;
 }) {
   const subscription = account?.subscription;
-  if (!subscription) return null;
+  if (!subscription) {
+    const trial = account?.trial;
+    if (!trial || trial.status === "ended") return null;
+    return (
+      <Card className="border-orange">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <Gift className="h-4 w-4 text-orange" />
+          <h2 className="font-display text-lg font-bold text-ink">Essai gratuit</h2>
+          {trial.status === "pending" ? (
+            <Badge variant="warning">Commence à la validation</Badge>
+          ) : (
+            <Badge variant="success">
+              {trial.days_left} jour{trial.days_left > 1 ? "s" : ""} restant{trial.days_left > 1 ? "s" : ""}
+            </Badge>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {trial.status === "pending" || !trial.ends_at
+            ? `Vos ${trial.days_left} jours d'essai commenceront le jour où l'administration validera votre boutique.`
+            : `Jusqu'au ${formatDateOnly(trial.ends_at)}. Choisissez ensuite une formule pour continuer à vendre.`}
+        </p>
+      </Card>
+    );
+  }
 
   const daysLeft = subscription.is_active ? subscription.days_left : 0;
   const expiringSoon = subscription.is_active && daysLeft <= 3;

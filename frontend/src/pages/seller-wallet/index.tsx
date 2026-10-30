@@ -67,6 +67,13 @@ export default function SellerWalletPage() {
         </Card>
       )}
 
+      {subscription.status === "trial" && !subscription.trial_ends_at && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
+          Votre période d'essai commencera à la validation de votre boutique.
+        </p>
+      )}
+
       {subscription.status === "trial" && subscription.trial_ends_at && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Clock className="h-3.5 w-3.5 shrink-0" />

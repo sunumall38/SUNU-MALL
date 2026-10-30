@@ -6,6 +6,8 @@ limite de produits appliquée sur le catalogue — le backend est la seule sourc
 de vérité, le frontend n'est jamais autorisé à décider d'un statut ni d'une
 limite.
 """
+import math
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -54,8 +56,9 @@ def product_limit_for(seller):
 
     Règles (spec §10-§11, §24) :
     - abonnement actif → limite de sa formule (None = illimité) ;
-    - essai 0 % en cours ou période de grâce → plafond de l'offre d'entrée
-      (ou de la dernière formule payée pendant la grâce) ;
+    - essai 0 % en cours (ou en attente de la validation du dossier) ou
+      période de grâce → plafond de l'offre d'entrée (ou de la dernière
+      formule payée pendant la grâce) ;
     - retrait/annulation/hors grâce → bloqué (0).
     """
     if seller.is_admin():
@@ -73,7 +76,7 @@ def product_limit_for(seller):
         return 0
     if entitlement.status == entitlement.Status.SUSPENDED:
         return 0
-    if entitlement.trial_active(now):
+    if entitlement.trial_active(now) or entitlement.trial_pending():
         plan = _entry_plan()
         return plan.max_products if plan else None
     if entitlement.in_grace(now):
@@ -102,6 +105,21 @@ def check_product_creation_allowed(seller):
         )
     if _product_count_for_seller(seller) >= limit:
         raise ValidationError(PRODUCT_LIMIT_EXCEEDED_MESSAGE)
+
+
+def _trial_state(seller):
+    """Essai gratuit : « pending » tant que le dossier attend sa validation,
+    « active » jusqu'à sa fin, puis « ended »."""
+    from apps.commissions.models import SellerSubscription
+
+    entitlement = SellerSubscription.get_or_create_for(seller)
+    if entitlement.trial_pending():
+        return {"status": "pending", "ends_at": None, "days_left": settings.COMMISSION_TRIAL_DAYS}
+    now = timezone.now()
+    if entitlement.trial_active(now):
+        days_left = math.ceil((entitlement.trial_ends_at - now).total_seconds() / 86400)
+        return {"status": "active", "ends_at": entitlement.trial_ends_at, "days_left": days_left}
+    return {"status": "ended", "ends_at": entitlement.trial_ends_at, "days_left": 0}
 
 
 def subscription_state(seller):
@@ -136,6 +154,7 @@ def subscription_state(seller):
         "products_remaining": None if limit is None else max(0, limit - count),
         "is_unlimited": limit is None,
         "grace_period_days": settings.SUBSCRIPTION_GRACE_PERIOD_DAYS,
+        "trial": _trial_state(seller),
     }
 
 

@@ -38,6 +38,7 @@ from .serializers import (
 )
 from .storage import save_document
 from .utils import (
+    SELLER_KYC_SUBMITTED_STATUSES,
     _document_fingerprint,
     log_kyc_security,
     notify_kyc_approved,
@@ -178,10 +179,11 @@ class _KYCViewSetBase(mixins.ListModelMixin, viewsets.GenericViewSet):
         notify_kyc_submitted(user)
         self._log_security(kyc, "submit")
         if isinstance(kyc, SellerKYC):
-            # Boutique refusée en attente de cette nouvelle pièce : le dossier
-            # complet repart en examen.
+            # La pièce complète le dossier : boutique refusée puis corrigée, ou
+            # boutique créée avant la pièce → l'administration est prévenue.
+            first_submission = previous_status not in SELLER_KYC_SUBMITTED_STATUSES
             for store in Store.objects.filter(owner=user):
-                if store.reopen_if_rejected():
+                if store.reopen_if_rejected() or (first_submission and store.status == Store.Status.INACTIVE):
                     notify_admin_store_created(store)
 
         return Response(
