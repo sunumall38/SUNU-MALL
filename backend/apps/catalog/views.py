@@ -118,7 +118,8 @@ class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["store", "category", "status"]
+    # `category` est filtré dans get_queryset (sous-catégories incluses).
+    filterset_fields = ["store", "status"]
     search_fields = ["name", "description"]
 
     def get_permissions(self):
@@ -145,6 +146,16 @@ class ProductViewSet(viewsets.ModelViewSet):
                 ends_at__gte=today,
             ).values_list("product_id", flat=True)
             queryset = queryset.filter(id__in=sponsored_product_ids)
+
+        category_id = self.request.query_params.get("category")
+        if category_id:
+            if not category_id.isdigit():
+                raise ValidationError({"category": ["Catégorie invalide."]})
+            # Une catégorie principale montre aussi les produits de ses
+            # sous-catégories : les pages clients n'affichent que les principales.
+            queryset = queryset.filter(
+                models.Q(category_id=category_id) | models.Q(category__parent_id=category_id)
+            )
 
         # Éviter les N+1 : ProductSerializer sérialise images + variants, et
         # ProductVariantSerializer lit inventory (get_quantity / is_available).
@@ -397,7 +408,10 @@ class StoreViewSet(viewsets.ModelViewSet):
 
         category_id = self.request.query_params.get("product_category")
         if category_id:
-            qs = qs.filter(products__category_id=category_id, products__status=Product.Status.ACTIVE).distinct()
+            qs = qs.filter(
+                models.Q(products__category_id=category_id) | models.Q(products__category__parent_id=category_id),
+                products__status=Product.Status.ACTIVE,
+            ).distinct()
 
         return qs
 
