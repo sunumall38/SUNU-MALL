@@ -1,6 +1,5 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
-import * as Linking from "expo-linking";
 import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -10,8 +9,6 @@ import { LoadingScreen } from "@/components/RoleGate";
 import { TextField } from "@/components/TextField";
 import { ApiError, apiErrorMessage } from "@/lib/api";
 import * as authApi from "@/lib/auth";
-import { SITE_URL } from "@/lib/config";
-import { normalizeSenegalPhone, SENEGAL_PHONE_ERROR, SENEGAL_PHONE_EXAMPLE } from "@/lib/phone";
 import { roleHomeHref } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth";
 import { colors } from "@/theme";
@@ -19,9 +16,7 @@ import { colors } from "@/theme";
 export default function LoginScreen() {
   const user = useAuthStore((s) => s.user);
   const loginSuccess = useAuthStore((s) => s.loginSuccess);
-  const [mode, setMode] = useState<"phone" | "email">("phone");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -31,12 +26,9 @@ export default function LoginScreen() {
   if (user) return <LeaveLogin home={roleHomeHref(user)} />;
 
   async function submit() {
-    const normalized = normalizeSenegalPhone(phone);
-    const cleanEmail = email.trim().toLowerCase();
-    const identifier: authApi.LoginIdentifier | null =
-      mode === "phone" ? (normalized ? { phone: normalized } : null) : cleanEmail.includes("@") ? { email: cleanEmail } : null;
+    const identifier = authApi.parseIdentifier(login);
     const nextErrors = {
-      identifier: identifier ? undefined : mode === "phone" ? SENEGAL_PHONE_ERROR : "Adresse email invalide",
+      identifier: identifier ? undefined : authApi.IDENTIFIER_ERROR,
       password: password ? undefined : "Mot de passe requis",
     };
     setErrors(nextErrors);
@@ -72,43 +64,18 @@ export default function LoginScreen() {
           </View>
 
           <View style={styles.form}>
-            {mode === "phone" ? (
-              <TextField
-                label="Numéro de téléphone"
-                prefix="+221"
-                placeholder={SENEGAL_PHONE_EXAMPLE}
-                keyboardType="phone-pad"
-                autoComplete="tel"
-                textContentType="telephoneNumber"
-                value={phone}
-                onChangeText={setPhone}
-                error={errors.identifier}
-                hint="Les 9 chiffres de votre numéro, sans l'indicatif."
-              />
-            ) : (
-              <TextField
-                label="Email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                textContentType="emailAddress"
-                value={email}
-                onChangeText={setEmail}
-                error={errors.identifier}
-              />
-            )}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setMode(mode === "phone" ? "email" : "phone");
-                setErrors({});
-              }}
-              style={styles.switchMode}
-            >
-              <Text style={styles.link}>
-                {mode === "phone" ? "Se connecter avec mon email" : "Se connecter avec mon numéro"}
-              </Text>
-            </Pressable>
+            <TextField
+              label="Numéro de téléphone ou email"
+              placeholder="77 123 45 67 ou nom@email.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              value={login}
+              onChangeText={setLogin}
+              error={errors.identifier}
+            />
             <TextField
               label="Mot de passe"
               secureTextEntry
@@ -120,7 +87,7 @@ export default function LoginScreen() {
               onSubmitEditing={submit}
               returnKeyType="go"
             />
-            <Pressable onPress={() => Linking.openURL(`${SITE_URL}/mot-de-passe-oublie`)} style={styles.forgot}>
+            <Pressable accessibilityRole="button" onPress={() => router.push("/forgot-password")} style={styles.forgot}>
               <Text style={styles.link}>Mot de passe oublié ?</Text>
             </Pressable>
 
@@ -132,10 +99,10 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Text style={styles.footerText}>Pas encore de compte ?</Text>
-            <Pressable onPress={() => Linking.openURL(`${SITE_URL}/register-client`)}>
-              <Text style={styles.link}>Créer un compte sur le site</Text>
+            <Pressable accessibilityRole="button" onPress={() => router.push("/register")}>
+              <Text style={styles.link}>Créer un compte</Text>
             </Pressable>
-            <Pressable onPress={() => Linking.openURL(`${SITE_URL}/register-merchant`)}>
+            <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/register", params: { role: "merchant" } })}>
               <Text style={styles.link}>Vous vendez ? Créer une boutique</Text>
             </Pressable>
             <Text style={styles.footerNote}>
@@ -196,7 +163,6 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 14, color: colors.mutedForeground },
   form: { gap: 16 },
   forgot: { alignSelf: "flex-end", marginTop: -6 },
-  switchMode: { alignSelf: "flex-start", marginTop: -8 },
   link: { fontSize: 14, fontWeight: "600", color: colors.orange },
   serverError: {
     fontSize: 14,

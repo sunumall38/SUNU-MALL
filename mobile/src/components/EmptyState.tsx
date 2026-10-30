@@ -33,6 +33,7 @@ export function LoginPrompt({ icon, title, text }: { icon: keyof typeof Ionicons
   return (
     <EmptyState icon={icon} title={title} text={text}>
       <Button label="Se connecter" onPress={() => router.push("/login")} />
+      <Button label="Créer un compte" variant="secondary" onPress={() => router.push("/register")} />
     </EmptyState>
   );
 }

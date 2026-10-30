@@ -43,6 +43,17 @@ export function apiErrorMessage(err: unknown, fallback = "Une erreur est survenu
   return fallback;
 }
 
+/** Erreurs DRF par champ ({ email: ["…"] } → { email: "…" }), pour les afficher sous chaque saisie. */
+export function apiFieldErrors(err: unknown): Record<string, string> {
+  if (!(err instanceof ApiError) || !err.data || typeof err.data !== "object" || Array.isArray(err.data)) return {};
+  const result: Record<string, string> = {};
+  for (const [field, value] of Object.entries(err.data as Record<string, unknown>)) {
+    const message = Array.isArray(value) ? value.find((v): v is string => typeof v === "string") : value;
+    if (typeof message === "string") result[field] = message;
+  }
+  return result;
+}
+
 // Un seul refresh à la fois : les requêtes en 401 simultanées attendent le même.
 let refreshing: Promise<string | null> | null = null;
 

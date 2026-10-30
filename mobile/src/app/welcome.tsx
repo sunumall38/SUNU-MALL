@@ -51,6 +51,11 @@ export default function WelcomeScreen() {
           <Pressable accessibilityRole="button" onPress={() => router.push("/login")} style={styles.login} hitSlop={8}>
             <Text style={styles.loginText}>Se connecter</Text>
           </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => router.push("/register")} style={styles.register} hitSlop={8}>
+            <Text style={styles.registerText}>
+              Pas encore de compte ? <Text style={styles.registerLink}>Créer un compte</Text>
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -78,4 +83,7 @@ const styles = StyleSheet.create({
   actions: { gap: 8, marginTop: 16 },
   login: { alignItems: "center", paddingVertical: 10 },
   loginText: { fontSize: 15, fontWeight: "600", color: colors.navy },
+  register: { alignItems: "center" },
+  registerText: { fontSize: 14, color: colors.mutedForeground },
+  registerLink: { fontWeight: "700", color: colors.orange },
 });
