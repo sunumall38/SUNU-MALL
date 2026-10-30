@@ -1,6 +1,11 @@
 # En-têtes servis par Cloudflare Pages (et Netlify, même syntaxe).
 
+# Content-Security-Policy : seuls les scripts du site s'exécutent ; les appels
+# réseau ne vont qu'à l'API (à mettre à jour si son adresse change) et à
+# Cloudflare Web Analytics. Styles en ligne permis : la carte de livraison
+# (Leaflet) en a besoin. Images : toute source https (photos, carte).
 /*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://sunu-mall-api.onrender.com https://cloudflareinsights.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

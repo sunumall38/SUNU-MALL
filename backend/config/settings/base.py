@@ -58,6 +58,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.security.middleware.RequestIDMiddleware",
     "apps.security.middleware.MaintenanceModeMiddleware",
+    "apps.ops.middleware.DailyTasksMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -288,6 +289,8 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.ScopedRateThrottle",
+        "apps.security.throttling.ApiAnonThrottle",
+        "apps.security.throttling.ApiUserThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         # Chaque appel coûte réellement de l'argent (API Anthropic) : limite
@@ -309,6 +312,18 @@ REST_FRAMEWORK = {
 # tests. On ne s'appuie PAS sur settings.DEBUG car Django force DEBUG=False
 # pendant `manage.py test`.
 AUTH_ANON_THROTTLE_RATE = "10/min"
+
+# Limites globales de l'API (apps/security/throttling.py) : par adresse pour
+# les visiteurs, par compte pour les connectés. Larges, pour ne gêner ni une
+# navigation rapide ni plusieurs clients derrière la même adresse (réseaux
+# mobiles) ; dev.py les désactive.
+API_ANON_THROTTLE_RATE = config("API_ANON_THROTTLE_RATE", default="300/min")
+API_USER_THROTTLE_RATE = config("API_USER_THROTTLE_RATE", default="600/min")
+
+# Traitements quotidiens vérifiés pendant le trafic (apps/ops/middleware.py),
+# au plus une fois par intervalle (secondes). Activé en production (prod.py).
+DAILY_TASKS_ON_REQUESTS = config("DAILY_TASKS_ON_REQUESTS", default=False, cast=bool)
+DAILY_TASKS_CHECK_INTERVAL = config("DAILY_TASKS_CHECK_INTERVAL", default=3600, cast=int)
 
 # DRF Spectacular (Swagger/OpenAPI)
 # Version publiée (fichier VERSION) et commit déployé — voir config/version.py.

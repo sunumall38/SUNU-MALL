@@ -21,6 +21,8 @@ CSRF_TRUSTED_ORIGINS = [
 # en prod (config/settings/base.py). On ne repose pas sur DEBUG car Django
 # force DEBUG=False pendant `manage.py test`.
 AUTH_ANON_THROTTLE_RATE = None
+API_ANON_THROTTLE_RATE = None
+API_USER_THROTTLE_RATE = None
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405
     "DEFAULT_THROTTLE_RATES": {
