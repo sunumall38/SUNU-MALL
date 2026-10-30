@@ -83,6 +83,46 @@ class PaymentSandboxTests(TestCase):
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, Payment.Status.PENDING)
 
+    def _confirm(self):
+        self.client.force_authenticate(self.customer)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/payments/{self.payment.id}/sandbox-confirm/", {"outcome": "success"}, format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_paid_order_notifies_merchant_with_items_to_prepare(self):
+        from apps.catalog.models import Inventory, Product, ProductVariant
+        from apps.monetization.models import Notification
+        from apps.orders.models import OrderItem
+
+        product = Product.objects.create(store=self.order.store, name="Robe wax", base_price=10000)
+        variant = ProductVariant.objects.create(product=product, sku="RW-1", price=10000)
+        Inventory.objects.create(variant=variant, quantity=5)
+        OrderItem.objects.create(order=self.order, product_variant=variant, quantity=1, unit_price=10000)
+        self._confirm()
+        note = Notification.objects.get(user=self.order.store.owner, metadata__kind="merchant_new_order")
+        self.assertIn("Nouvelle commande payée", note.subject)
+        self.assertIn("Robe wax × 1", note.message)
+        self.assertIn(f"/order-detail?order={self.order.id}", note.message)
+
+    def test_store_pickup_is_never_auto_assigned_to_a_driver(self):
+        from decimal import Decimal
+        from django.utils import timezone
+        from apps.orders.models import Delivery, Driver
+
+        driver_user = self._make_user("driver@example.com", Role.RoleName.CLIENT)
+        Driver.objects.create(
+            user=driver_user, availability_status=Driver.AvailabilityStatus.AVAILABLE,
+            last_latitude=Decimal("14.7"), last_longitude=Decimal("-17.4"), position_updated_at=timezone.now(),
+        )
+        self.order.delivery_type = "pickup"
+        self.order.save(update_fields=["delivery_type"])
+        delivery = Delivery.objects.create(order=self.order)
+        self._confirm()
+        delivery.refresh_from_db()
+        self.assertIsNone(delivery.driver_id)
+
     @override_settings(PAYMENT_SANDBOX=False)
     def test_sandbox_confirm_disabled_outside_sandbox_mode(self):
         self.client.force_authenticate(self.customer)

@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { formatDate, formatPrice } from "@/lib/utils";
+import { orderStatusLabel } from "@/lib/orderStatus";
 import type { GlobalOrder } from "@/types";
 
 const STATUS_VARIANT: Record<string, "default" | "success" | "warning" | "danger"> = {
@@ -67,7 +68,7 @@ export default function OrdersPage() {
                   <p className="text-xs text-muted-foreground">{formatDate(order.created_at)}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <Badge variant={STATUS_VARIANT[order.status] ?? "default"}>{order.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[order.status] ?? "default"}>{orderStatusLabel(order.status)}</Badge>
                   <p className="font-bold text-ink">{formatPrice(order.total_amount)}</p>
                   <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
                 </div>
@@ -97,7 +98,7 @@ function GlobalOrderCard({ order }: { order: GlobalOrder }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <Badge variant={STATUS_VARIANT[order.status] ?? "default"}>{order.status}</Badge>
+          <Badge variant={STATUS_VARIANT[order.status] ?? "default"}>{orderStatusLabel(order.status)}</Badge>
           <p className="font-bold text-ink">{formatPrice(order.total_amount)}</p>
           <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
         </div>

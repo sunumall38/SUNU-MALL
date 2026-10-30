@@ -31,6 +31,32 @@ numérotation : [SemVer](https://semver.org/lang/fr/) (voir `CONTRIBUTING.md`).
   `entrypoint.sh`.
 
 ### Corrigé
+- Parcours des premiers clients (tests de bout en bout) :
+  - le vendeur est prévenu par e-mail de chaque commande payée, avec les
+    articles à préparer ; le client d'une commande multi-boutiques reçoit
+    aussi sa confirmation ;
+  - le livreur qui se déclare « Disponible » envoie sa position GPS (sinon il
+    n'apparaissait à aucun vendeur) ;
+  - impossible d'affecter un livreur à une commande non payée ou à un retrait
+    en boutique ; le retrait en boutique n'est plus confié automatiquement à
+    un livreur ;
+  - tableau de bord vendeur : bandeau tant que la boutique n'a pas de position
+    GPS, erreurs d'affectation affichées, chiffre d'affaires limité aux
+    commandes payées ;
+  - le client peut payer une commande restée en attente (« Payer
+    maintenant » sur le suivi) ;
+  - statuts, moyens de paiement et étapes de livraison affichés en français ;
+    montant formaté côté livreur ; frais de livraison détaillés dans le
+    portefeuille vendeur ;
+  - le vendeur ne peut plus « simuler » le paiement d'un client ;
+  - liens des e-mails texte : `&amp;` n'est plus inséré dans les URL ;
+  - masqués en phase pilote : bouton « Générer avec l'IA » (clé IA absente)
+    et option « Retrait en boutique » (parcours de retrait à construire) ;
+  - textes du paiement de test reformulés pour les testeurs ;
+  - un article dont tout le stock était réservé par une commande abandonnée
+    restait « en rupture » jusqu'au passage quotidien : la fiche produit
+    libère désormais les commandes non payées expirées (au plus toutes les
+    5 minutes).
 - Suivi de livraison en direct : l'API répondait 406 à l'en-tête d'un
   navigateur, le suivi restait en rafraîchissement toutes les 10 s.
 - Flux temps réel plafonnés (moitié des fils du serveur) : au-delà, la page

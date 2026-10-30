@@ -1151,3 +1151,23 @@ class OpenApiAuthenticationSchemeTests(TestCase):
         self.assertEqual(set(schema["components"]["securitySchemes"]), {"jwtAuth", "cookieAuth"})
         security = schema["paths"]["/api/auth/change-password/"]["post"]["security"]
         self.assertIn({"jwtAuth": []}, security)
+
+
+class PlainTextEmailTemplateTests(TestCase):
+    """Les versions texte des emails ne doivent pas échapper le HTML.
+
+    Un lien `...?uid=x&token=y` devenait `...&amp;token=y` dans la partie
+    texte : inutilisable dans un client mail qui affiche le texte brut.
+    """
+
+    def test_links_are_not_html_escaped(self):
+        from django.template.loader import render_to_string
+
+        url = "https://sunu-mall.test/verify-email?uid=abc&token=def"
+        user = User(first_name="Awa & Co")
+        for template in ("verification_email.txt", "password_reset.txt", "guest_login_link.txt"):
+            body = render_to_string(f"emails/{template}", {
+                "user": user, "verification_url": url, "reset_url": url, "login_url": url, "link": url,
+            })
+            self.assertNotIn("&amp;", body, template)
+            self.assertIn("Awa & Co", body, template)

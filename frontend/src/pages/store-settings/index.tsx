@@ -256,8 +256,8 @@ export default function StoreSettingsPage() {
           <div>
             <p className="mb-3 text-sm font-semibold text-ink">Localisation de la boutique</p>
             <p className="mb-3 text-xs text-muted-foreground">
-              Sert à calculer le frais de livraison réel de vos clients selon la distance. Sans position, un forfait
-              par défaut est appliqué.
+              Indispensable pour livrer : seuls les livreurs proches de cette position peuvent récupérer vos colis, et
+              elle sert à calculer les frais de livraison. Enregistrez-la depuis la boutique elle-même.
             </p>
             {selectedStore?.latitude && selectedStore?.longitude ? (
               <p className="mb-3 flex items-center gap-1.5 text-sm text-ink">

@@ -148,7 +148,7 @@ export default function TrackingPage() {
         setRetrying(false);
       }
     } catch (err) {
-      window.alert(apiErrorMessage(err, "Impossible de relancer le paiement."));
+      window.alert(apiErrorMessage(err, "Impossible de lancer le paiement."));
       setRetrying(false);
     }
   }
@@ -279,6 +279,18 @@ export default function TrackingPage() {
             <p className="flex-1 text-xs text-danger">Le paiement n'a pas abouti.</p>
             <Button size="sm" onClick={handleRetryPayment} loading={retrying}>
               Réessayer le paiement
+            </Button>
+          </div>
+        )}
+
+        {isAuthMode && tracked.status === "pending" && tracked.payment?.status === "pending" && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-orange/30 bg-orange-50 p-3">
+            <Badge variant="warning">En attente de paiement</Badge>
+            <p className="flex-1 text-xs text-orange-800">
+              Cette commande n'est pas encore payée : la boutique ne la préparera qu'après le paiement.
+            </p>
+            <Button size="sm" onClick={handleRetryPayment} loading={retrying}>
+              Payer maintenant
             </Button>
           </div>
         )}

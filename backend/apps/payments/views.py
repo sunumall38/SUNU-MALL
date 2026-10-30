@@ -55,6 +55,67 @@ def _send_order_confirmation(order):
     notification.send()
 
 
+DELIVERY_TYPE_LABELS = {
+    "standard": "Livraison standard",
+    "express": "Livraison express",
+    "pickup": "Retrait en boutique",
+}
+
+
+def _send_global_order_confirmation(global_order):
+    """Confirmation client d'une commande multi-boutiques payée."""
+    stores = ", ".join(sorted({o.store.name for o in global_order.orders.select_related("store")}))
+    customer = global_order.customer
+    notification = Notification.objects.create(
+        user=customer,
+        channel=Notification.Channel.EMAIL,
+        subject="Commande confirmée — Sunu Mall",
+        message=(
+            f"Bonjour {customer.first_name or customer.email},\n\n"
+            f"Votre commande n°{str(global_order.id)[:8]} ({stores}) a été payée avec succès.\n"
+            f"Montant total : {global_order.total_amount} FCFA.\n\n"
+            "Vos articles sont regroupés en une seule livraison, que vous pouvez suivre "
+            "depuis votre espace Sunu Mall.\n\n"
+            "Merci de votre confiance !"
+        ),
+        metadata={"global_order_id": str(global_order.id)},
+    )
+    notification.send()
+
+
+def _notify_merchant_new_order(order):
+    """Prévient le vendeur qu'une commande payée l'attend.
+
+    Sans ce message, un vendeur ne découvre ses commandes qu'en ouvrant son
+    tableau de bord. Contient ce qu'il faut préparer, jamais l'adresse du
+    client (transmise au livreur dans l'application).
+    """
+    owner = order.store.owner
+    lines = "\n".join(
+        f"- {item.product_variant.product.name} × {item.quantity}"
+        for item in order.items.select_related("product_variant__product")
+    )
+    delivery_label = DELIVERY_TYPE_LABELS.get(order.delivery_type or "standard", "Livraison")
+    detail_url = f"{settings.FRONTEND_URL.rstrip('/')}/order-detail?order={order.id}"
+    notification = Notification.objects.create(
+        user=owner,
+        channel=Notification.Channel.EMAIL,
+        subject=f"Nouvelle commande payée — {order.store.name}",
+        message=(
+            f"Bonjour {owner.first_name or owner.email},\n\n"
+            f"Une commande vient d'être payée dans votre boutique {order.store.name} "
+            f"(n°{str(order.id)[:8]}).\n\n"
+            f"Articles à préparer :\n{lines}\n\n"
+            f"Montant des articles : {order.total_amount - order.delivery_fee} FCFA\n"
+            f"Mode : {delivery_label}\n\n"
+            f"Détail et suivi : {detail_url}\n\n"
+            "L'équipe Sunu Mall"
+        ),
+        metadata={"kind": "merchant_new_order", "order_id": str(order.id)},
+    )
+    notification.send()
+
+
 def _target_cancelled(payment):
     if payment.order_id is not None:
         return payment.order.status == Order.Status.CANCELLED
@@ -114,15 +175,23 @@ def _fulfill_payment(payment, changed_by=None):
                 )
     payment.refresh_from_db()
 
-    # Effets externes (email, affectation du livreur) après validation.
+    # Effets externes (emails, affectation du livreur) après validation.
+    # Retrait en boutique : aucun livreur à affecter.
     if payment.order_id is not None:
-        _send_order_confirmation(payment.order)
-        delivery = getattr(payment.order, "delivery", None)
-        if delivery:
+        order = payment.order
+        _send_order_confirmation(order)
+        if order.status != Order.Status.CANCELLED:
+            _notify_merchant_new_order(order)
+        delivery = getattr(order, "delivery", None)
+        if delivery and order.delivery_type != "pickup":
             delivery.auto_assign()
     elif payment.global_order_id is not None:
-        delivery = payment.global_order.deliveries.first()
-        if delivery:
+        global_order = payment.global_order
+        _send_global_order_confirmation(global_order)
+        for sub_order in global_order.orders.exclude(status=Order.Status.CANCELLED).select_related("store__owner"):
+            _notify_merchant_new_order(sub_order)
+        delivery = global_order.deliveries.first()
+        if delivery and getattr(global_order, "delivery_type", "standard") != "pickup":
             delivery.auto_assign()
     # Le côté abonnement (activation + facture) est déjà géré par
     # Payment.mark_succeeded() lui-même — voir apps.payments.models.

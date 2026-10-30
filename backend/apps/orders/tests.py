@@ -43,7 +43,8 @@ class DeliveryLifecycleTests(TestCase):
             last_latitude=Decimal("14.716677"), last_longitude=Decimal("-17.467686"),
             position_updated_at=timezone.now(),
         )
-        self.order = Order.objects.create(customer=self.customer, store=self.store, total_amount=5000)
+        self.order = Order.objects.create(customer=self.customer, store=self.store, total_amount=5000,
+                                          status=Order.Status.PAID)
         self.delivery = Delivery.objects.create(order=self.order)
 
     def _make_user(self, email, role_name):
@@ -59,6 +60,24 @@ class DeliveryLifecycleTests(TestCase):
         self.delivery.refresh_from_db()
         self.assertEqual(self.delivery.driver_id, self.driver.id)
         self.assertEqual(self.delivery.status, Delivery.Status.ASSIGNED)
+
+    def test_driver_cannot_be_assigned_to_unpaid_order(self):
+        self.order.status = Order.Status.PENDING
+        self.order.save(update_fields=["status"])
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post(f"/api/orders/deliveries/{self.delivery.id}/assign/", {"driver": str(self.driver.id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("pas payée", str(response.data))
+        self.delivery.refresh_from_db()
+        self.assertIsNone(self.delivery.driver_id)
+
+    def test_driver_cannot_be_assigned_to_store_pickup(self):
+        self.order.delivery_type = "pickup"
+        self.order.save(update_fields=["delivery_type"])
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post(f"/api/orders/deliveries/{self.delivery.id}/assign/", {"driver": str(self.driver.id)}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Retrait en boutique", str(response.data))
 
     def test_other_merchant_cannot_assign_driver(self):
         self.client.force_authenticate(self.other_merchant)
@@ -513,7 +532,8 @@ class DriverWorkflowTests(TestCase):
             last_latitude=Decimal("14.716677"), last_longitude=Decimal("-17.467686"),
             position_updated_at=timezone.now(),
         )
-        self.order = Order.objects.create(customer=self.customer, store=self.store, total_amount=5000)
+        self.order = Order.objects.create(customer=self.customer, store=self.store, total_amount=5000,
+                                          status=Order.Status.PAID)
         self.delivery = Delivery.objects.create(order=self.order)
 
     def _make_user(self, email, role_name):

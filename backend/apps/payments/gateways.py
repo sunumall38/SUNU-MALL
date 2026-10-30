@@ -199,9 +199,8 @@ class SandboxGateway(BasePaymentGateway):
             "sandbox": True,
             "provider_ref": provider_ref,
             "message": (
-                "Mode test : aucune transaction réelle n'est envoyée à "
-                f"{payment.method}. Utilisez l'action « sandbox-confirm » "
-                "pour simuler le résultat du paiement."
+                "Phase de test : aucun argent n'est débité. Le paiement est "
+                "simulé : confirmez-le pour continuer."
             ),
         }
 

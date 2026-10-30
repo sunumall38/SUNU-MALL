@@ -6,12 +6,15 @@ import { Spinner } from "@/components/ui/Spinner";
 import * as ordersApi from "@/api/orders";
 import { useCheckoutStore } from "@/store/checkoutStore";
 import { formatPrice } from "@/lib/utils";
+import { FEATURES } from "@/lib/features";
 
-const OPTIONS = [
+const ALL_OPTIONS = [
   { id: "standard" as const, label: "Livraison standard", eta: "24-48h", icon: Truck },
   { id: "express" as const, label: "Livraison express", eta: "2-4h", icon: Bike },
   { id: "pickup" as const, label: "Retrait en boutique", eta: "Selon disponibilité", icon: StoreIcon },
 ];
+
+const OPTIONS = ALL_OPTIONS.filter((o) => FEATURES.storePickup || o.id !== "pickup");
 
 export default function CheckoutDeliveryPage() {
   const navigate = useNavigate();

@@ -1,4 +1,4 @@
-Bonjour {{ user.first_name }} !
+{% autoescape off %}Bonjour {{ user.first_name }} !
 
 Merci de vous être inscrit sur SUNU MALL.
 
@@ -9,3 +9,4 @@ Si vous n'avez pas créé de compte, vous pouvez ignorer cet email.
 
 Cordialement,
 L'équipe SUNU MALL
+{% endautoescape %}

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ApiError, apiErrorMessage } from "@/lib/api";
-import { isHandoverStatus } from "@/lib/delivery";
+import { DELIVERY_STATUS_LABEL, isHandoverStatus } from "@/lib/delivery";
 import type { GlobalOrder, Order } from "@/types";
 
 export default function DeliveryConfirmPage() {
@@ -64,7 +64,7 @@ export default function DeliveryConfirmPage() {
       </span>
       <h1 className="font-display text-xl font-bold text-ink">Confirmation de livraison</h1>
       <p className="text-sm text-muted-foreground">
-        Commande n°{order.id.slice(0, 8)} — statut actuel : <strong className="text-ink">{delivery?.status ?? "inconnu"}</strong>
+        Commande n°{order.id.slice(0, 8)} — statut actuel : <strong className="text-ink">{delivery ? (DELIVERY_STATUS_LABEL[delivery.status] ?? delivery.status) : "inconnu"}</strong>
       </p>
 
       {delivered ? (
