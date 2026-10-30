@@ -271,7 +271,8 @@ function Gallery({ product }: { product: Product }) {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / size))}
-        style={{ width: size, borderRadius: radius.lg }}
+        // Hauteur fixe : sans elle, la liste horizontale s'étire sur tout l'écran (iOS).
+        style={{ width: size, height: size * 0.85, flexGrow: 0, borderRadius: radius.lg }}
         renderItem={({ item }) => (
           <Image source={{ uri: item }} style={{ width: size, height: size * 0.85 }} resizeMode="contain" accessibilityLabel={product.name} />
         )}

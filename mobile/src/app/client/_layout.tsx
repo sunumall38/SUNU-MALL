@@ -58,7 +58,7 @@ function ClientStack({ userId }: { userId: string | null }) {
       <Stack.Screen name="favorites" options={{ title: "Mes favoris" }} />
       <Stack.Screen name="notifications" options={{ title: "Notifications" }} />
       <Stack.Screen name="shops" options={{ title: "Boutiques" }} />
-      <Stack.Screen name="shop/[id]" options={{ title: "" }} />
+      <Stack.Screen name="shop/[id]" options={{ headerShown: false }} />
       <Stack.Screen name="category/[id]" options={{ title: "" }} />
     </Stack>
   );

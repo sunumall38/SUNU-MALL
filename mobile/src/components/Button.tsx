@@ -28,7 +28,14 @@ export function Button({ label, variant = "primary", loading = false, disabled, 
       {loading ? (
         <ActivityIndicator color={variant === "primary" ? colors.white : colors.orange} />
       ) : (
-        <Text style={[styles.label, variant === "primary" ? styles.labelPrimary : styles.labelOther]}>{label}</Text>
+        <Text
+          style={[styles.label, variant === "primary" ? styles.labelPrimary : styles.labelOther]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+        >
+          {label}
+        </Text>
       )}
     </Pressable>
   );

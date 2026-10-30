@@ -156,7 +156,7 @@ export default function ShopsScreen() {
       ) : null}
 
       {tab === "categories" && categories.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noGrow} contentContainerStyle={styles.chips}>
           {[null, ...categories].map((name) => {
             const selected = name === category;
             return (
@@ -231,6 +231,7 @@ const styles = StyleSheet.create({
   noticeText: { fontSize: 13, color: colors.warning },
   link: { fontSize: 13, fontWeight: "700", color: colors.orange },
   chips: { gap: 8 },
+  noGrow: { flexGrow: 0 },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 8,

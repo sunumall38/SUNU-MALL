@@ -1,11 +1,19 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { FavoriteButton } from "@/components/FavoriteButton";
 import { displayPrice, productImage } from "@/lib/catalog";
 import { formatPrice, mediaUrl } from "@/lib/format";
 import { colors, radius, shadow } from "@/theme";
 import type { Product } from "@/types";
+
+/** Photo produit ; icône à la place si elle manque ou ne se charge pas (fichier absent du stockage). */
+function Thumb({ uri, iconSize }: { uri: string | null; iconSize: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!uri || failed) return <Ionicons name="image-outline" size={iconSize} color={colors.mutedForeground} />;
+  return <Image source={{ uri }} style={styles.image} resizeMode="cover" onError={() => setFailed(true)} />;
+}
 
 export function openProduct(id: string) {
   router.push({ pathname: "/client/product/[id]", params: { id } });
@@ -49,11 +57,7 @@ export function ProductTile({
       style={({ pressed }) => [styles.card, { width }, pressed && styles.pressed]}
     >
       <View style={[styles.imageBox, { height: width }]}>
-        {uri ? (
-          <Image source={{ uri }} style={styles.image} resizeMode="cover" />
-        ) : (
-          <Ionicons name="image-outline" size={32} color={colors.mutedForeground} />
-        )}
+        <Thumb uri={uri} iconSize={32} />
         <View style={styles.heart}>
           <FavoriteButton productId={productId} />
         </View>
@@ -84,11 +88,7 @@ export function ProductRow({ product }: { product: Product }) {
       style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
       <View style={styles.rowImageBox}>
-        {uri ? (
-          <Image source={{ uri }} style={styles.image} resizeMode="cover" />
-        ) : (
-          <Ionicons name="image-outline" size={26} color={colors.mutedForeground} />
-        )}
+        <Thumb uri={uri} iconSize={26} />
       </View>
       <View style={styles.rowBody}>
         <Text style={styles.rowName} numberOfLines={2}>

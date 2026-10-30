@@ -161,7 +161,7 @@ function HomeHeader({ reloadKey }: { reloadKey: number }) {
             title="Catégories"
             onSeeAll={() => router.navigate({ pathname: "/client/search", params: { tab: "categories" } })}
           />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noGrow} contentContainerStyle={styles.categories}>
             {categories.map((category) => {
               const style = categoryStyle(category.name);
               return (
@@ -210,7 +210,7 @@ function HomeHeader({ reloadKey }: { reloadKey: number }) {
       {bestSellers.length >= 2 ? (
         <>
           <SectionTitle title="Produits populaires" />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carousel}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.noGrow} contentContainerStyle={styles.carousel}>
             {bestSellers.map((product) => (
               <ProductCard key={product.id} product={product} width={150} />
             ))}
@@ -313,4 +313,6 @@ const styles = StyleSheet.create({
   promoText: { fontSize: 13, color: "#FFE4CC" },
   promoImage: { width: 110, height: 110, borderRadius: radius.md },
   carousel: { gap: GAP, paddingRight: PADDING, paddingBottom: 4 },
+  // Liste horizontale : pas d'étirement vertical (iOS).
+  noGrow: { flexGrow: 0 },
 });

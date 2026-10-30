@@ -8,21 +8,18 @@ import type { Paginated, Product } from "@/types";
 
 const GAP = 12;
 
-/** Grille de produits paginée (catégorie, boutique). */
+/** Grille de produits paginée (catégorie). */
 export function ProductGrid({
   queryKey,
   fetchPage,
   header,
   emptyText,
-  showStore = true,
 }: {
   queryKey: string;
   fetchPage: (page: number) => Promise<Paginated<Product>>;
   /** En-tête ; reçoit le nombre total de produits (null tant qu'il est inconnu). */
   header?: (count: number | null) => ReactElement;
   emptyText: string;
-  /** Nom de la boutique sous chaque produit (inutile sur la page d'une boutique). */
-  showStore?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 32 - GAP) / 2;
@@ -35,7 +32,7 @@ export function ProductGrid({
       numColumns={2}
       columnWrapperStyle={styles.column}
       contentContainerStyle={styles.list}
-      renderItem={({ item }) => <ProductCard product={item} width={cardWidth} showStore={showStore} />}
+      renderItem={({ item }) => <ProductCard product={item} width={cardWidth} />}
       onEndReached={products.loadMore}
       onEndReachedThreshold={0.5}
       refreshControl={<RefreshControl refreshing={products.refreshing} onRefresh={products.refresh} tintColor={colors.orange} />}

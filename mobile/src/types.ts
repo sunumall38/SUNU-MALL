@@ -96,6 +96,7 @@ export interface Store {
   is_verified_seller: boolean;
   latitude: string | null;
   longitude: string | null;
+  created_at?: string;
 }
 
 export interface WishlistItem {
