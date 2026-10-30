@@ -1068,6 +1068,8 @@ class Order(models.Model):
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.PENDING)
+    # La boutique a préparé le colis : le livreur peut passer le récupérer.
+    ready_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1102,7 +1104,10 @@ class Order(models.Model):
         return delivery.status not in self.PRE_PICKUP_DELIVERY_STATUSES
 
     def can_be_cancelled(self):
-        return self.status in [self.Status.PENDING, self.Status.PAID] and not self.delivery_started()
+        # « En préparation » (confirmée par la boutique) reste annulable tant
+        # que le colis n'est pas parti, comme une commande simplement payée.
+        cancellable = [self.Status.PENDING, self.Status.PAID, self.Status.PROCESSING]
+        return self.status in cancellable and not self.delivery_started()
 
     def release_stock(self):
         """Rend au stock les quantités réservées par cette commande."""
@@ -1150,6 +1155,42 @@ class Order(models.Model):
         from apps.analytics.models import SalesStatistic
         SalesStatistic.compute_for_store(self.store, self.created_at.date())
         return True
+
+    def notify_customer_confirmed(self):
+        """Prévient le client que la boutique prépare sa commande."""
+        from apps.monetization.models import Notification
+
+        Notification.objects.create(
+            user=self.customer,
+            channel=Notification.Channel.EMAIL,
+            subject=f"Commande en préparation — {self.store.name}",
+            message=(
+                f"Bonjour,\n\n"
+                f"{self.store.name} prépare votre commande n°{str(self.id)[:8]}.\n"
+                "Vous serez prévenu dès qu'un livreur l'aura récupérée.\n\n"
+                "Merci de votre confiance."
+            ),
+            metadata={"order_id": str(self.id)},
+        ).send()
+
+    def notify_driver_ready(self, delivery):
+        """Prévient le livreur déjà affecté que le colis l'attend à la boutique."""
+        from apps.monetization.models import Notification
+
+        if delivery is None or delivery.driver_id is None:
+            return
+        Notification.objects.create(
+            user=delivery.driver.user,
+            channel=Notification.Channel.EMAIL,
+            subject=f"Colis prêt — {self.store.name}",
+            message=(
+                f"Bonjour {delivery.driver.user.first_name},\n\n"
+                f"Le colis de la commande {str(self.id)[:8]} est prêt chez {self.store.name} "
+                f"({self.store.address}, {self.store.city}) — livraison {delivery.reference}.\n\n"
+                "Merci."
+            ),
+            metadata={"delivery_id": str(delivery.id), "order_id": str(self.id)},
+        ).send()
 
     def notify_merchant_cancelled(self):
         from apps.monetization.models import Notification
