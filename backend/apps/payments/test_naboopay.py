@@ -102,6 +102,20 @@ class NabooPayGatewayTests(TestCase):
         post.assert_not_called()
         self.assertEqual(response.data["checkout_url"], "https://checkout.naboopay.com/checkout/ord_1")
 
+    def test_app_payment_does_not_reuse_site_transaction(self):
+        with mock.patch("apps.payments.gateways.requests.post", return_value=FakeResponse(_transaction())):
+            self.client.post(f"/api/payments/{self.payment.id}/initiate/")
+        with mock.patch(
+            "apps.payments.gateways.requests.get", return_value=FakeResponse(_transaction())
+        ), mock.patch(
+            "apps.payments.gateways.requests.post", return_value=FakeResponse(_transaction("ord_app"))
+        ) as post:
+            response = self.client.post(
+                f"/api/payments/{self.payment.id}/initiate/", {"return_to": "app"}, format="json"
+            )
+        self.assertEqual(response.data["provider_ref"], "ord_app")
+        self.assertTrue(post.call_args[1]["json"]["success_url"].endswith("&app=1"))
+
     def test_gateway_refusal_is_reported_cleanly(self):
         with mock.patch(
             "apps.payments.gateways.requests.post",
