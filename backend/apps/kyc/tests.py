@@ -16,14 +16,21 @@ Spec §22 : 10 tests obligatoires
 
 Ensuite : les gating (§21) boutique/livraison et l'accès aux pièces.
 """
+import importlib
 import shutil
 import tempfile
+from datetime import timedelta
 
+from django.apps import apps as django_apps
+from django.conf import settings
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Product, Store, StoreCategory
+from apps.catalog.models import Product, ProductVariant, Store, StoreCategory
+from apps.commissions.models import SellerSubscription
 from apps.kyc.models import DriverKYC, KYCAuditLog, SellerKYC, VerificationHistory
 from apps.monetization.models import Notification
 from apps.security.models import SecurityLog
@@ -318,7 +325,7 @@ class KYCSubmitTests(TestCase):
 
 @KYC_FS
 class KYCGatingTests(TestCase):
-    """Pièce d'identité d'abord : sans elle, ni boutique, ni vente, ni courses."""
+    """Sans pièce d'identité validée, ni vente ni courses (la boutique se crée avant)."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -345,11 +352,11 @@ class KYCGatingTests(TestCase):
             status=DriverKYC.Status.VERIFIED, submitted_at=None,
         )
 
-    def test_merchant_cannot_create_store_before_sending_kyc(self):
+    def test_merchant_creates_store_before_sending_kyc(self):
         self.client.force_authenticate(self.merchant)
         response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(Store.objects.filter(owner=self.merchant).exists())
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["status"], Store.Status.INACTIVE)
 
     def test_merchant_can_submit_store_once_kyc_is_sent(self):
         kyc = self._verify_seller()
@@ -359,11 +366,13 @@ class KYCGatingTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["status"], Store.Status.INACTIVE)
 
-    def test_merchant_with_rejected_kyc_cannot_create_store(self):
+    def test_merchant_with_rejected_kyc_can_still_create_store(self):
+        # La boutique attend la nouvelle pièce pour partir en examen.
         self._verify_seller().mark_rejected("Photo illisible")
         self.client.force_authenticate(self.merchant)
         response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["status"], Store.Status.INACTIVE)
 
     def test_merchant_can_create_store_with_verified_kyc(self):
         self._verify_seller()
@@ -769,3 +778,159 @@ class SellerSingleValidationTests(TestCase):
         self.assertEqual(response.status_code, 200, response.data)
         store.refresh_from_db()
         self.assertEqual(store.status, Store.Status.INACTIVE)
+
+
+@KYC_FS
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    ADMIN_NOTIFICATION_EMAIL="marketplace-admin@sunu.test",
+)
+class SellerOnboardingTests(TestCase):
+    """Parcours vendeur : boutique, pièce d'identité, puis une validation qui
+    met en ligne les brouillons et démarre l'essai gratuit."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.override_storage = override_settings(KYC_STORAGE_LOCATION=self.tmp)
+        self.override_storage.enable()
+        self.addCleanup(self.override_storage.disable)
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+        self.admin = make_user("admin@sunu.test", Role.RoleName.ADMIN)
+        self.merchant = make_user("m@sunu.test", Role.RoleName.MERCHANT)
+        self.client = APIClient()
+
+    def _create_store(self):
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post("/api/catalog/stores/", {"name": "Boutique test"}, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        return Store.objects.get(pk=response.data["id"])
+
+    def _submit_kyc(self):
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post(
+            "/api/kyc/seller-kyc/submit/",
+            {"document_type": "cni", "document_front": cni_upload("f.jpg"), "document_back": cni_upload("b.jpg")},
+            format="multipart",
+        )
+        self.assertIn(response.status_code, (200, 201), response.data)
+
+    def _approve(self, store):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(f"/api/catalog/stores/{store.id}/approve/")
+        self.assertEqual(response.status_code, 200, response.data)
+
+    def _trial(self):
+        self.client.force_authenticate(self.merchant)
+        return self.client.get("/api/monetization/subscription/me/").data["trial"]
+
+    def _admin_alerts(self):
+        return [m for m in mail.outbox if m.to == ["marketplace-admin@sunu.test"]]
+
+    def test_admin_is_alerted_once_the_dossier_is_complete(self):
+        self._create_store()
+        self.assertEqual(self._admin_alerts(), [])
+
+        self._submit_kyc()
+        self.assertEqual(len(self._admin_alerts()), 1)
+        self.assertIn("Nouvelle boutique à valider", self._admin_alerts()[0].subject)
+
+        # Renvoyer la pièce pendant l'examen ne relance pas l'alerte.
+        self._submit_kyc()
+        self.assertEqual(len(self._admin_alerts()), 1)
+
+    def test_pending_seller_prepares_draft_products(self):
+        store = self._create_store()
+        self._submit_kyc()
+        self.client.force_authenticate(self.merchant)
+        response = self.client.post(
+            "/api/catalog/products/",
+            {"store": str(store.id), "name": "Robe wax", "base_price": 15000, "status": "draft"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+
+    def test_first_validation_publishes_drafts_and_starts_trial(self):
+        store = self._create_store()
+        self._submit_kyc()
+        ready = Product.objects.create(store=store, name="Robe wax", base_price=15000, status=Product.Status.DRAFT)
+        ProductVariant.objects.create(product=ready, sku="ROBE-1", price=15000)
+        no_price = Product.objects.create(store=store, name="Sans prix", base_price=1000, status=Product.Status.DRAFT)
+        self.assertEqual(self._trial()["status"], "pending")
+
+        self._approve(store)
+
+        ready.refresh_from_db()
+        no_price.refresh_from_db()
+        self.assertEqual(ready.status, Product.Status.ACTIVE)
+        self.assertEqual(no_price.status, Product.Status.DRAFT)
+
+        trial = self._trial()
+        self.assertEqual(trial["status"], "active")
+        self.assertEqual(trial["days_left"], settings.COMMISSION_TRIAL_DAYS)
+        entitlement = SellerSubscription.objects.get(seller=self.merchant)
+        self.assertAlmostEqual(
+            entitlement.trial_ends_at, timezone.now() + timedelta(days=settings.COMMISSION_TRIAL_DAYS),
+            delta=timedelta(minutes=1),
+        )
+        message = Notification.objects.get(user=self.merchant, subject__icontains="validé").message
+        self.assertIn("Votre produit en brouillon est maintenant en ligne", message)
+        self.assertIn("Votre essai gratuit commence aujourd'hui", message)
+
+    def test_new_validation_does_not_restart_the_trial(self):
+        store = self._create_store()
+        self._submit_kyc()
+        self._approve(store)
+        entitlement = SellerSubscription.objects.get(seller=self.merchant)
+        ends = timezone.now() + timedelta(days=5)
+        entitlement.trial_ends_at = ends
+        entitlement.save(update_fields=["trial_ends_at"])
+
+        self.client.force_authenticate(self.admin)
+        self.client.post(f"/api/catalog/stores/{store.id}/reject/", {"reason": "Logo flou"}, format="json")
+        self.client.force_authenticate(self.merchant)
+        self.client.patch(f"/api/catalog/stores/{store.id}/", {"name": "Boutique corrigée"}, format="json")
+        self._approve(store)
+
+        entitlement.refresh_from_db()
+        self.assertEqual(entitlement.trial_ends_at, ends)
+
+    def test_identity_verified_from_kyc_page_starts_trial(self):
+        self._create_store()
+        self._submit_kyc()
+        kyc = SellerKYC.objects.get(seller=self.merchant)
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self.client.post(f"/api/kyc/seller-kyc/{kyc.id}/approve/").status_code, 200)
+        self.assertEqual(self._trial()["status"], "active")
+
+    def test_already_verified_seller_without_entitlement_starts_now(self):
+        SellerKYC.objects.create(
+            seller=self.merchant, document_type="cni", status=SellerKYC.Status.VERIFIED,
+            document_front="kyc/sellers/1/f.jpg", document_back="kyc/sellers/1/b.jpg",
+        )
+        entitlement = SellerSubscription.get_or_create_for(self.merchant)
+        self.assertTrue(entitlement.trial_active())
+        self.assertAlmostEqual(entitlement.trial_started_at, timezone.now(), delta=timedelta(minutes=1))
+
+    def test_migration_resets_trials_of_sellers_not_yet_validated(self):
+        migration = importlib.import_module("apps.commissions.migrations.0003_trial_starts_at_validation")
+        started = timezone.now() - timedelta(days=10)
+        waiting = SellerSubscription.objects.create(
+            seller=self.merchant, trial_started_at=started, trial_ends_at=started + timedelta(days=30),
+        )
+        validated_seller = make_user("ok@sunu.test", Role.RoleName.MERCHANT)
+        SellerKYC.objects.create(
+            seller=validated_seller, document_type="cni", status=SellerKYC.Status.VERIFIED,
+            document_front="kyc/sellers/2/f.jpg", document_back="kyc/sellers/2/b.jpg",
+        )
+        validated = SellerSubscription.objects.create(
+            seller=validated_seller, trial_started_at=started, trial_ends_at=started + timedelta(days=30),
+        )
+
+        migration.reset_pending_trials(django_apps, None)
+
+        waiting.refresh_from_db()
+        validated.refresh_from_db()
+        self.assertIsNone(waiting.trial_ends_at)
+        self.assertTrue(waiting.trial_pending())
+        self.assertEqual(validated.trial_started_at, started)

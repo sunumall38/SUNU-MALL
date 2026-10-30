@@ -145,6 +145,13 @@ class SellerKYC(KYCDocument):
     def owner_type(self):
         return "seller"
 
+    def mark_verified(self):
+        super().mark_verified()
+        # Vendeur validé : son essai gratuit commence maintenant.
+        from apps.commissions.models import SellerSubscription
+
+        SellerSubscription.get_or_create_for(self.seller).start_trial()
+
     def folder_owner_stem(self):
         return f"seller_{self.seller_id}"
 

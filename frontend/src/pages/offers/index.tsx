@@ -43,7 +43,8 @@ export default function OffersPage() {
         <div>
           <h1 className="font-display text-2xl font-bold text-gray-900">Nos offres</h1>
           <p className="text-sm text-muted-foreground">
-            Lancement : commission Sunu Mall à 0 % sur toutes les formules. Premier mois gratuit.
+            Lancement : commission Sunu Mall à 0 % sur toutes les formules. 30 jours d'essai gratuit à la
+            validation de votre boutique.
           </p>
         </div>
       </div>
@@ -168,7 +169,7 @@ export default function OffersPage() {
         </div>
         <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
           <Crown className="h-4 w-4 text-orange" />
-          Premier mois offert sur toutes les formules à votre toute première souscription.
+          Essai gratuit de 30 jours à la validation de votre boutique, avant de choisir une formule.
         </p>
       </Card>
 

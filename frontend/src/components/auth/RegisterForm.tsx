@@ -114,8 +114,8 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
           </p>
         ) : isMerchant ? (
           <p className="max-w-sm text-sm text-muted-foreground">
-            Vérifiez votre boîte mail pour activer votre compte, puis connectez-vous : vous pourrez alors
-            envoyer votre pièce d'identité pour activer votre boutique (vérification sous 24 h).
+            Vérifiez votre boîte mail pour activer votre compte, puis connectez-vous : vous créerez votre
+            boutique et enverrez votre pièce d'identité (vérification sous 24 h).
           </p>
         ) : (
           <p className="max-w-xs text-sm text-muted-foreground">
@@ -201,8 +201,8 @@ export function RegisterForm({ role }: { role: "client" | "merchant" }) {
         <div className="flex items-start gap-2 rounded-xl border border-border bg-muted p-4">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-orange" />
           <p className="text-xs text-muted-foreground">
-            Vous pourrez envoyer votre pièce d'identité juste après, à votre première connexion, pour activer
-            votre boutique.
+            À votre première connexion, vous créerez votre boutique puis enverrez votre pièce d'identité pour
+            la faire valider.
           </p>
         </div>
       )}

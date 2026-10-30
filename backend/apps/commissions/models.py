@@ -30,8 +30,9 @@ from apps.users.models import User
 class SellerSubscription(models.Model):
     """Entitlement commission d'un vendeur (spec §4, §16-§18).
 
-    Cycle de vie : chaque vendeur démarre avec 30 jours d'essai à 0 % de
-    commission (trial_started_at = création du compte, trial_ends_at = +30 j).
+    Cycle de vie : chaque vendeur a 30 jours d'essai à 0 % de commission, qui
+    commencent à la validation de son dossier (trial_started_at = validation,
+    trial_ends_at = +30 j ; les deux sont vides tant qu'il attend).
     À la fin de l'essai il choisit un plan (STARTER/PRO/BUSINESS) : statut
     ACTIVE et période starts_at/ends_at renseignées. Passée la fin de période
     (ou de l'essai), le vendeur reste autorisé à vendre pendant une période de
@@ -75,18 +76,18 @@ class SellerSubscription(models.Model):
     def get_or_create_for(cls, seller):
         """Abonnement commission du vendeur, créé à la volée si absent.
 
-        L'essai démarre à la création du compte (spec §3) — y compris pour
-        les comptes créés avant l'arrivée de ce module.
+        L'essai attend la validation du dossier (start_trial) ; un vendeur déjà
+        validé sans abonnement enregistré commence le sien maintenant.
         """
-        trial_start = seller.created_at or timezone.now()
-        subscription, _ = cls.objects.get_or_create(
-            seller=seller,
-            defaults={
-                "status": cls.Status.TRIAL,
-                "trial_started_at": trial_start,
-                "trial_ends_at": trial_start + timedelta(days=settings.COMMISSION_TRIAL_DAYS),
-            },
-        )
+        existing = cls.objects.filter(seller=seller).first()
+        if existing:
+            return existing
+        subscription, _ = cls.objects.get_or_create(seller=seller, defaults={"status": cls.Status.TRIAL})
+
+        from apps.kyc.utils import seller_kyc_verified
+
+        if seller_kyc_verified(seller):
+            subscription.start_trial()
         return subscription
 
     @staticmethod
@@ -106,6 +107,20 @@ class SellerSubscription(models.Model):
         if not self.plan:
             return None
         return SubscriptionPlan.objects.filter(name=self.plan, is_active=True).first()
+
+    def trial_pending(self):
+        """Essai pas encore commencé : le dossier vendeur attend sa validation."""
+        return self.status == self.Status.TRIAL and self.trial_ends_at is None
+
+    def start_trial(self, at=None):
+        """Démarre l'essai (validation du dossier) ; sans effet s'il a déjà commencé."""
+        if not self.trial_pending():
+            return False
+        at = at or timezone.now()
+        self.trial_started_at = at
+        self.trial_ends_at = at + timedelta(days=settings.COMMISSION_TRIAL_DAYS)
+        self.save(update_fields=["trial_started_at", "trial_ends_at"])
+        return True
 
     def trial_active(self, at=None):
         at = at or timezone.now()
@@ -149,7 +164,7 @@ class SellerSubscription(models.Model):
         if self.status == self.Status.SUSPENDED:
             # Suspension (admin) : coupe immédiatement la vente, sans grâce.
             return self._fallback_rate(), self.plan, False
-        if self.trial_active(at):
+        if self.trial_active(at) or self.trial_pending():
             return Decimal("0"), "", True
         if self.period_active(at):
             plan = self.plan_obj()
@@ -170,7 +185,7 @@ class SellerSubscription(models.Model):
         now = timezone.now()
         if self.status == self.Status.SUSPENDED:
             return self.Status.SUSPENDED
-        if self.trial_active(now):
+        if self.trial_active(now) or self.trial_pending():
             return self.Status.TRIAL
         if self.period_active(now):
             return self.Status.ACTIVE
