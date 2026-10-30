@@ -39,7 +39,8 @@ function errorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-export default function CreateShopPage() {
+/** `onDone` : écran d'accueil de l'espace vendeur, qui passe à l'étape suivante. */
+export default function CreateShopPage({ onDone }: { onDone?: () => void }) {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const { data: categories } = useAsync(() => catalogApi.listStoreCategories(), []);
@@ -81,7 +82,8 @@ export default function CreateShopPage() {
     try {
       if (editing && existing) await catalogApi.updateStore(existing.id, payload);
       else await catalogApi.createStore(payload);
-      navigate("/merchant");
+      if (onDone) onDone();
+      else navigate("/merchant");
     } catch (err) {
       setError(errorMessage(err, editing ? "Impossible d'enregistrer la boutique." : "Impossible de créer la boutique."));
     }
@@ -91,7 +93,8 @@ export default function CreateShopPage() {
   if (existing && !editing) return <Navigate to="/merchant" replace />;
 
   return (
-    <div className="max-w-lg">
+    // Dans l'écran d'accueil de l'espace vendeur, le formulaire prend toute sa largeur.
+    <div className={onDone ? undefined : "max-w-lg"}>
       <div className="mb-6 flex items-center gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent text-orange">
           <StoreIcon className="h-5 w-5" />
@@ -101,7 +104,7 @@ export default function CreateShopPage() {
           <p className="text-sm text-muted-foreground">
             {editing
               ? "Après enregistrement, votre dossier repart en examen."
-              : "Examinée par l'administration en même temps que votre pièce d'identité."}
+              : "Vous enverrez ensuite votre pièce d'identité : l'administration examinera les deux ensemble."}
           </p>
         </div>
       </div>

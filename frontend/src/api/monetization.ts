@@ -37,6 +37,8 @@ export interface SubscriptionState {
   products_remaining: number | null;
   is_unlimited: boolean;
   grace_period_days: number;
+  /** Essai gratuit : « pending » jusqu'à la validation du dossier, puis « active » et « ended ». */
+  trial?: { status: "pending" | "active" | "ended"; ends_at: string | null; days_left: number };
 }
 
 /** État complet « Mon abonnement » (formule, dates, limites produits). */

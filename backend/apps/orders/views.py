@@ -439,6 +439,57 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.refresh_from_db()
         return Response(OrderSerializer(order).data)
 
+    def _store_order(self, request):
+        """Commande de la boutique du demandeur (ou admin), sinon 403."""
+        order = self.get_object()
+        if order.store.owner_id != request.user.id and not request.user.is_admin():
+            raise PermissionDenied("Seule la boutique de la commande peut faire cette action.")
+        return order
+
+    @action(detail=True, methods=["post"])
+    def confirm(self, request, pk=None):
+        """La boutique accepte une commande payée : elle passe « en préparation ».
+
+        Le client est prévenu. Rejouer l'action sur une commande déjà en
+        préparation ne change rien.
+        """
+        order = self._store_order(request)
+        if order.status == Order.Status.PENDING:
+            raise ValidationError("Le client n'a pas encore payé : ne préparez pas encore cette commande.")
+        if order.status not in (Order.Status.PAID, Order.Status.PROCESSING):
+            raise ValidationError("Cette commande ne peut plus être confirmée.")
+        if order.change_status(Order.Status.PROCESSING, changed_by=request.user):
+            order.notify_customer_confirmed()
+        order.refresh_from_db()
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=["post"])
+    def ready(self, request, pk=None):
+        """Colis prêt : le livreur peut passer le récupérer.
+
+        Une commande payée encore non confirmée l'est au passage. Sur un achat
+        multi-boutiques, le point de collecte de cette boutique passe « prêt ».
+        Le livreur déjà affecté est prévenu.
+        """
+        order = self._store_order(request)
+        if order.status == Order.Status.PENDING:
+            raise ValidationError("Le client n'a pas encore payé : ne préparez pas encore cette commande.")
+        if order.status not in (Order.Status.PAID, Order.Status.PROCESSING):
+            raise ValidationError("Cette commande ne peut plus être marquée prête.")
+        if order.status == Order.Status.PAID and order.change_status(Order.Status.PROCESSING, changed_by=request.user):
+            order.notify_customer_confirmed()
+        if order.ready_at is None:
+            order.ready_at = timezone.now()
+            order.save(update_fields=["ready_at", "updated_at"])
+            delivery = order.current_delivery()
+            if delivery is not None:
+                DeliveryPickup.objects.filter(
+                    delivery=delivery, store=order.store, pickup_status=DeliveryPickup.Status.PENDING,
+                ).update(pickup_status=DeliveryPickup.Status.READY)
+            order.notify_driver_ready(delivery)
+        order.refresh_from_db()
+        return Response(OrderSerializer(order).data)
+
 
 def cancel_store_in_global_order(order, user, by_merchant=False):
     """Suites de l'annulation d'UNE sous-commande d'un achat multi-boutiques.

@@ -8,7 +8,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Inventory, Product, ProductVariant, Store
+from apps.catalog.models import Inventory, Product, ProductImage, ProductVariant, Store
 from apps.shopping.models import Cart, CartItem
 from apps.users.models import User
 
@@ -63,6 +63,16 @@ class CartTests(TestCase):
         stores = {item["store"] for item in response.data["items"]}
         self.assertEqual(stores, {str(self.store.id), str(self.other_store.id)})
         self.assertEqual(Decimal(str(response.data["total_price"])), Decimal("8000"))
+
+    def test_cart_item_shows_product_and_first_photo(self):
+        product = self.variant.product
+        ProductImage.objects.create(product=product, minio_path="https://img.test/2.jpg", position=2)
+        ProductImage.objects.create(product=product, minio_path="https://img.test/1.jpg", position=1)
+        item = self._add(self.variant).data["items"][0]
+        self.assertEqual(item["product"], str(product.id))
+        self.assertEqual(item["product_image"], "https://img.test/1.jpg")
+        other = self._add(self.other_variant).data["items"]
+        self.assertIsNone(next(i for i in other if str(i["product_variant"]) == str(self.other_variant.id))["product_image"])
 
     def test_adding_same_variant_twice_accumulates_quantity(self):
         self._add(self.variant, 2)
@@ -143,6 +153,11 @@ class WishlistTests(TestCase):
 
         removed = self.client.delete(f"{WISHLIST_ITEMS_URL}{self.product.id}/")
         self.assertEqual(removed.data["items"], [])
+
+    def test_wishlist_item_shows_first_photo(self):
+        ProductImage.objects.create(product=self.product, minio_path="https://img.test/p.jpg")
+        response = self.client.post(WISHLIST_ITEMS_URL, {"product": str(self.product.id)}, format="json")
+        self.assertEqual(response.data["items"][0]["product_image"], "https://img.test/p.jpg")
 
     def test_wishlist_requires_authentication(self):
         self.client.force_authenticate(None)

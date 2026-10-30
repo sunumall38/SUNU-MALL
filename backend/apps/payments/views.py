@@ -278,6 +278,17 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         # Dernière tentative de paiement : l'expiration des commandes non
         # payées compte à partir d'ici, jamais pendant un paiement en cours.
         Payment.objects.filter(pk=payment.pk).update(updated_at=timezone.now())
+        # Lancé depuis l'appli mobile ({"return_to": "app"}) : après Wave /
+        # Orange Money, la page de retour renvoie vers l'appli.
+        data = request.data if isinstance(request.data, dict) else {}
+        metadata = dict(payment.metadata or {})
+        if data.get("return_to") == "app":
+            metadata["return_to"] = "app"
+        else:
+            metadata.pop("return_to", None)
+        if metadata != (payment.metadata or {}):
+            payment.metadata = metadata
+            payment.save(update_fields=["metadata"])
         try:
             gateway = get_gateway(payment.method)
             result = gateway.initiate(payment)

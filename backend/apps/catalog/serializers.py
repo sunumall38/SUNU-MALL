@@ -36,7 +36,8 @@ class ProductImageSerializer(serializers.ModelSerializer):
 
 
 class StoreSerializer(serializers.ModelSerializer):
-    owner_email = serializers.EmailField(source='owner.email', read_only=True)
+    # Réservé au propriétaire et à l'administration : jamais sur la page publique.
+    owner_email = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
     banner_url = serializers.SerializerMethodField()
     category_detail = StoreCategorySerializer(source='category', read_only=True)
@@ -64,6 +65,22 @@ class StoreSerializer(serializers.ModelSerializer):
             "id", "owner", "created_at", "updated_at", "owner_email",
             "logo_url", "banner_url", "category_detail", "rejection_reason",
         ]
+
+    def get_owner_email(self, obj):
+        viewer_id, viewer_is_admin = self._viewer()
+        if viewer_is_admin or (viewer_id is not None and viewer_id == obj.owner_id):
+            return obj.owner.email
+        return None
+
+    def _viewer(self):
+        """(id, admin ?) du visiteur, calculé une fois pour toute une liste."""
+        if not hasattr(self, "_viewer_info"):
+            user = getattr(self.context.get("request"), "user", None)
+            if user is not None and user.is_authenticated:
+                self._viewer_info = (user.id, user.is_admin())
+            else:
+                self._viewer_info = (None, False)
+        return self._viewer_info
 
     def get_logo_url(self, obj):
         return obj.logo.url if obj.logo else None

@@ -118,7 +118,8 @@ class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["store", "category", "status"]
+    # `category` est filtré dans get_queryset (sous-catégories incluses).
+    filterset_fields = ["store", "status"]
     search_fields = ["name", "description"]
 
     def get_permissions(self):
@@ -153,6 +154,16 @@ class ProductViewSet(viewsets.ModelViewSet):
                 ends_at__gte=today,
             ).values_list("product_id", flat=True)
             queryset = queryset.filter(id__in=sponsored_product_ids)
+
+        category_id = self.request.query_params.get("category")
+        if category_id:
+            if not category_id.isdigit():
+                raise ValidationError({"category": ["Catégorie invalide."]})
+            # Une catégorie principale montre aussi les produits de ses
+            # sous-catégories : les pages clients n'affichent que les principales.
+            queryset = queryset.filter(
+                models.Q(category_id=category_id) | models.Q(category__parent_id=category_id)
+            )
 
         # Éviter les N+1 : ProductSerializer sérialise images + variants, et
         # ProductVariantSerializer lit inventory (get_quantity / is_available).
@@ -403,21 +414,33 @@ class StoreViewSet(viewsets.ModelViewSet):
             ),
         )
 
+        if self.action == "list" and not (user.is_authenticated and user.is_admin()):
+            # Annuaire public : une boutique sans produit en ligne n'y figure
+            # pas. Son propriétaire la voit toujours dans la liste, et sa page
+            # reste accessible par son lien.
+            qs = qs.annotate(
+                has_active_product=models.Exists(
+                    Product.objects.filter(store=models.OuterRef("pk"), status=Product.Status.ACTIVE)
+                )
+            )
+            visible = models.Q(has_active_product=True)
+            if user.is_authenticated:
+                visible |= models.Q(owner=user)
+            qs = qs.filter(visible)
+
         category_id = self.request.query_params.get("product_category")
         if category_id:
-            qs = qs.filter(products__category_id=category_id, products__status=Product.Status.ACTIVE).distinct()
+            qs = qs.filter(
+                models.Q(products__category_id=category_id) | models.Q(products__category__parent_id=category_id),
+                products__status=Product.Status.ACTIVE,
+            ).distinct()
 
         return qs
 
     def perform_create(self, serializer):
-        # Parcours vendeur : pièce d'identité d'abord, boutique ensuite. Les
+        # Parcours vendeur : boutique d'abord, pièce d'identité ensuite. Les
         # deux sont examinées ensemble par l'administration (approve/reject).
         user = self.request.user
-        if not user.is_admin() and not seller_kyc_submitted(user):
-            raise PermissionDenied(
-                "Envoyez d'abord votre pièce d'identité depuis votre espace vendeur : "
-                "l'administration l'examinera en même temps que votre boutique."
-            )
         # Règle « 1 vendeur = 1 boutique » (spec §1) : appliquée côté backend,
         # jamais dans le frontend. Un commerçant ne peut posséder qu'une seule
         # boutique, quel que soit son statut (active, en attente, suspendue) —
@@ -436,7 +459,10 @@ class StoreViewSet(viewsets.ModelViewSet):
             # de l'administration, quel que soit le `status` envoyé.
             extra["status"] = Store.Status.INACTIVE
         store = serializer.save(owner=self.request.user, **extra)
-        notify_admin_store_created(store)
+        # Dossier incomplet tant que la pièce n'est pas envoyée : l'administration
+        # sera prévenue à son envoi (kyc submit).
+        if user.is_admin() or seller_kyc_submitted(user):
+            notify_admin_store_created(store)
 
     def perform_update(self, serializer):
         store = self.get_object()
@@ -534,20 +560,46 @@ class StoreViewSet(viewsets.ModelViewSet):
                 "detail": "Le vendeur n'a pas de pièce d'identité en attente : "
                           "impossible de valider son dossier pour l'instant.",
             })
+        first_validation = kyc is not None and kyc.status != SellerKYC.Status.VERIFIED
+        published = 0
         with transaction.atomic():
             store.status = Store.Status.ACTIVE
             store.rejection_reason = ""
             store.save()
-            if kyc is not None and kyc.status != SellerKYC.Status.VERIFIED:
+            if first_validation:
                 previous_status = kyc.status
+                # Démarre aussi l'essai gratuit du vendeur (SellerKYC.mark_verified).
                 kyc.mark_verified()
                 VerificationHistory.record(kyc, SellerKYC.Status.VERIFIED, request.user,
                                            previous_status=previous_status)
                 record_kyc_audit(request.user, kyc, "ADMIN_APPROVE_SELLER_KYC")
+                # Les produits préparés pendant l'examen passent en ligne
+                # (ceux qui ont un prix, c'est-à-dire une variante).
+                drafts = store.products.filter(status=Product.Status.DRAFT, variants__isnull=False).distinct()
+                for product in drafts:
+                    product.status = Product.Status.ACTIVE
+                    product.save(update_fields=["status", "updated_at"])
+                    published += 1
         subject = "Votre compte vendeur est validé"
         message = (
             f"Bonjour {store.owner.first_name},\n\n"
             f"Votre identité et votre boutique '{store.name}' ont été validées par SUNU MALL.\n\n"
+        )
+        if published == 1:
+            message += "Votre produit en brouillon est maintenant en ligne.\n\n"
+        elif published > 1:
+            message += f"Vos {published} produits en brouillon sont maintenant en ligne.\n\n"
+        if first_validation:
+            from apps.commissions.models import SellerSubscription
+
+            entitlement = SellerSubscription.get_or_create_for(store.owner)
+            if entitlement.trial_active():
+                ends = timezone.localdate(entitlement.trial_ends_at).strftime("%d/%m/%Y")
+                message += (
+                    f"Votre essai gratuit commence aujourd'hui, jusqu'au {ends}. Vous choisirez "
+                    "ensuite une formule depuis votre espace vendeur.\n\n"
+                )
+        message += (
             "Vous pouvez dès maintenant publier vos produits et recevoir des commandes "
             "depuis votre espace vendeur."
         )

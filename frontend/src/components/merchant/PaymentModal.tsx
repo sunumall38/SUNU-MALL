@@ -49,8 +49,8 @@ export function PaymentModal({
     setError(null);
     try {
       const result = await createPayment(method);
-      // Offre gratuite ou premier mois gratuit : aucun paiement à confirmer,
-      // l'abonnement a déjà été activé côté serveur.
+      // Offre gratuite : aucun paiement à confirmer, l'abonnement a déjà été
+      // activé côté serveur.
       if (!result.payment) {
         onSuccess();
         return;

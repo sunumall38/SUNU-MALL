@@ -43,8 +43,14 @@ def _payment_return_url(payment):
     multi-boutiques, abonnement) : elle interroge l'API sur le statut réel du
     paiement — le retour navigateur n'est jamais une preuve de paiement — puis
     redirige vers la bonne page.
+
+    Paiement lancé depuis l'appli mobile : ``&app=1`` fait afficher à cette
+    page « revenez dans l'appli » (le navigateur n'y est pas connecté).
     """
-    return f"{settings.FRONTEND_URL.rstrip('/')}/paiement/retour?payment={payment.id}"
+    url = f"{settings.FRONTEND_URL.rstrip('/')}/paiement/retour?payment={payment.id}"
+    if (payment.metadata or {}).get("return_to") == "app":
+        url += "&app=1"
+    return url
 
 
 def _payment_cancel_url(payment):
@@ -652,13 +658,16 @@ class NabooPayGateway(BasePaymentGateway):
         if int(payment.amount) <= 10:
             raise PaymentGatewayError("NabooPay refuse les montants de 10 FCFA ou moins.")
 
-        # Une transaction encore en attente pour le même moyen et le même
-        # montant (retour arrière, double clic) est réutilisée.
+        # Une transaction encore en attente pour le même moyen, le même
+        # montant et la même page de retour (site ou appli) est réutilisée
+        # (retour arrière, double clic).
         state = self._state(payment)
+        return_url = _payment_return_url(payment)
         if (
             state.get("order_id")
             and state.get("checkout_url")
             and state.get("method") == self.method
+            and state.get("return_url") == return_url
             and state.get("order_id") == payment.provider_ref
         ):
             try:
@@ -675,7 +684,7 @@ class NabooPayGateway(BasePaymentGateway):
         payload = {
             "method_of_payment": [self.method],
             "products": [_naboopay_product(payment)],
-            "success_url": _payment_return_url(payment),
+            "success_url": return_url,
             "error_url": _payment_cancel_url(payment),
             "fees_customer_side": bool(settings.NABOOPAY_FEES_CUSTOMER_SIDE),
             "is_escrow": False,
@@ -697,7 +706,9 @@ class NabooPayGateway(BasePaymentGateway):
         attempts = list(metadata.get("naboopay_attempts") or [])
         attempts.append({"order_id": order_id, "method": self.method})
         metadata["naboopay_attempts"] = attempts[-20:]
-        metadata["naboopay"] = {"order_id": order_id, "checkout_url": checkout_url, "method": self.method}
+        metadata["naboopay"] = {
+            "order_id": order_id, "checkout_url": checkout_url, "method": self.method, "return_url": return_url,
+        }
         payment.metadata = metadata
         payment.provider_ref = order_id
         payment.save(update_fields=["metadata", "provider_ref"])

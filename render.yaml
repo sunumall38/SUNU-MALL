@@ -10,7 +10,12 @@
 #   - pas de Shell : le premier administrateur est créé par
 #     manage.py bootstrap_admin à partir des variables ADMIN_BOOTSTRAP_* ;
 #   - pas de worker ni de tâche planifiée : les traitements quotidiens sont
-#     lancés au démarrage du service (manage.py run_daily_tasks --if-due).
+#     lancés au démarrage du service (manage.py run_daily_tasks --if-due) et
+#     vérifiés pendant le trafic, au plus une fois par heure — ce qui suffit
+#     aussi sur une offre payante, où le service ne redémarre plus.
+#
+# Limites de requêtes de l'API (par défaut 300/min par visiteur, 600/min par
+# compte) : variables API_ANON_THROTTLE_RATE / API_USER_THROTTLE_RATE.
 # =========================================================
 
 services:

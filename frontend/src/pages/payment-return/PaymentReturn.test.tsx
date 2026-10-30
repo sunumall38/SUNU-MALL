@@ -82,4 +82,18 @@ describe("PaymentReturnPage", () => {
     renderAt("/paiement/retour");
     expect(screen.getByText("Aucun paiement à vérifier")).toBeInTheDocument();
   });
+
+  it("paiement lancé depuis l'appli : renvoie vers l'appli sans interroger l'API", () => {
+    const refresh = vi.spyOn(paymentsApi, "refreshPayment");
+    renderAt("/paiement/retour?payment=pay-1&app=1");
+    expect(screen.getByText("Retournez dans l'appli Sunu Mall")).toBeInTheDocument();
+    expect(screen.getByRole("link")).toHaveAttribute("href", "sunumall://client/payment/pay-1");
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("paiement interrompu depuis l'appli : invite à réessayer dans l'appli", () => {
+    renderAt("/paiement/retour?payment=pay-1&app=1&error=1");
+    expect(screen.getByText("Le paiement n'a pas abouti")).toBeInTheDocument();
+    expect(screen.getByText(/pour réessayer/)).toBeInTheDocument();
+  });
 });

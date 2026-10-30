@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Sunu Mall",
+    "slug": "sunu-mall",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A163A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Sunu Mall utilise votre position pour calculer les frais de livraison et guider le livreur jusqu'à vous."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Sunu Mall accède à vos photos pour illustrer les produits de votre boutique.",
+          "cameraPermission": "Sunu Mall utilise l'appareil photo pour photographier les produits de votre boutique."
+        }
+      ]
+    ],
+    "scheme": "sunumall"
+  }
+}

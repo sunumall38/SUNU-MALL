@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { ImagePlus, Sparkles, Store as StoreIcon, TriangleAlert } from "lucide-react";
+import { ImagePlus, Store as StoreIcon, TriangleAlert } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
-import * as iaApi from "@/api/ia";
+import * as kycApi from "@/api/kyc";
 import * as monetizationApi from "@/api/monetization";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
@@ -16,7 +16,6 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { ApiError } from "@/lib/api";
-import { FEATURES } from "@/lib/features";
 import { ProductLimitBanner } from "@/components/merchant/ProductLimitBanner";
 
 const schema = z.object({
@@ -36,47 +35,22 @@ export default function AddProductPage() {
   const { data: own, loading: loadingStores } = useAsync(() => catalogApi.listMyStores(), []);
   const { data: categories } = useAsync(() => catalogApi.listCategories(), []);
   const { data: account } = useAsync(() => monetizationApi.getMySubscriptionState(), []);
+  // Dossier pas encore validé : le produit attend en brouillon et sera mis en
+  // ligne à la validation (le serveur refuserait de le publier).
+  const { data: kyc, loading: loadingKyc } = useAsync(() => kycApi.getMySellerKyc().catch(() => null), []);
+  const verified = kyc?.status === "VERIFIED";
   const [error, setError] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [generatingDescription, setGeneratingDescription] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
+  // Catégories principales seulement : les pages clients n'affichent pas les
+  // sous-catégories, un produit classé dedans y serait introuvable.
+  const mainCategories = categories?.filter((c) => !c.parent) ?? [];
 
   const {
     register,
     handleSubmit,
-    getValues,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormInput, unknown, FormValues>({ resolver: zodResolver(schema), defaultValues: { initial_quantity: 100 } });
-
-  async function handleGenerateDescription() {
-    const values = getValues();
-    if (!values.name || !values.store || !values.base_price) {
-      setAiError("Renseignez au moins le nom du produit, la boutique et le prix avant de générer.");
-      return;
-    }
-    setAiError(null);
-    setGeneratingDescription(true);
-    try {
-      const { description } = await iaApi.generateProductDescription({
-        name: values.name,
-        category: values.category || null,
-        price: Number(values.base_price),
-        store: values.store,
-      });
-      setValue("description", description);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        const data = err.data as { error?: string };
-        setAiError(data?.error ?? "Impossible de générer une description.");
-      } else {
-        setAiError("Impossible de contacter le serveur.");
-      }
-    } finally {
-      setGeneratingDescription(false);
-    }
-  }
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -93,7 +67,7 @@ export default function AddProductPage() {
         name: values.name,
         description: values.description,
         base_price: values.base_price,
-        status: "active",
+        status: verified ? "active" : "draft",
       });
       await catalogApi.createVariant({
         product: product.id,
@@ -158,30 +132,10 @@ export default function AddProductPage() {
             ))}
           </Select>
           <Input label="Nom du produit" {...register("name")} error={errors.name?.message} />
-          <div>
-            <div className="mb-1.5 flex items-center justify-between">
-              <p className="text-sm font-semibold text-ink">Description</p>
-              {FEATURES.aiProductDescription && (
-              <button
-                type="button"
-                onClick={handleGenerateDescription}
-                disabled={generatingDescription}
-                className="flex items-center gap-1.5 text-xs font-semibold text-orange transition-colors hover:text-orange-dark disabled:opacity-50"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                {generatingDescription ? "Génération…" : "Générer avec l'IA"}
-              </button>
-              )}
-            </div>
-            <Textarea {...register("description")} rows={3} />
-            {FEATURES.aiProductDescription && (
-              <p className="mt-1.5 text-[11px] text-muted-foreground">Génération propulsée par {iaApi.AI_MODEL_DISPLAY_NAME}</p>
-            )}
-            {aiError && <p className="mt-1.5 text-xs text-danger">{aiError}</p>}
-          </div>
+          <Textarea label="Description" {...register("description")} rows={3} />
           <Select label="Catégorie" {...register("category")}>
             <option value="">Sélectionner…</option>
-            {categories?.map((c) => (
+            {mainCategories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
@@ -212,8 +166,14 @@ export default function AddProductPage() {
               {error}
             </div>
           )}
-          <Button type="submit" loading={isSubmitting}>
-            Publier le produit
+          {!loadingKyc && !verified && (
+            <p className="rounded-lg border border-orange/20 bg-orange/5 px-3.5 py-2.5 text-sm text-muted-foreground">
+              Votre boutique est en cours de validation : ce produit sera enregistré en brouillon et mis en ligne
+              automatiquement dès la validation.
+            </p>
+          )}
+          <Button type="submit" loading={isSubmitting} disabled={loadingKyc}>
+            {verified ? "Publier le produit" : "Enregistrer en brouillon"}
           </Button>
         </form>
       </Card>
