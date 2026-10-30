@@ -67,7 +67,8 @@ export interface StoreCategory {
 export interface Store {
   id: string;
   owner: string;
-  owner_email: string;
+  /** Visible du propriétaire et de l'administration seulement (null ailleurs). */
+  owner_email: string | null;
   category: number | null;
   category_detail: StoreCategory | null;
   name: string;

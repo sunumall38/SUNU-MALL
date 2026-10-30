@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { BadgeCheck, Mail, PackageSearch, Star, Store as StoreIcon } from "lucide-react";
+import { BadgeCheck, PackageSearch, Star, Store as StoreIcon } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import * as catalogApi from "@/api/catalog";
 import { ProductCard } from "@/components/marketplace/ProductCard";
@@ -76,9 +76,6 @@ export default function BoutiqueDetailPage() {
               </Badge>
             )}
           </div>
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-white/70">
-            <Mail className="h-3.5 w-3.5" /> {store.owner_email}
-          </p>
           {store.rating != null && (
             <p className="mt-1 flex items-center gap-1 text-sm text-white/70">
               <Star className="h-3.5 w-3.5 fill-orange text-orange" />

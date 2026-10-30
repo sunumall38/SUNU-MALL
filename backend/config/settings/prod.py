@@ -98,6 +98,10 @@ SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
+# Un service qui ne se met plus en veille ne redémarre qu'aux déploiements :
+# les traitements quotidiens sont aussi vérifiés pendant le trafic.
+DAILY_TASKS_ON_REQUESTS = config("DAILY_TASKS_ON_REQUESTS", default=True, cast=bool)
+
 # Garde-fous : refuse de démarrer sur une configuration dangereuse (mode
 # sandbox avec de vraies clés de paiement, secrets par défaut…). Voir
 # config/settings/checks.py.
