@@ -12,7 +12,7 @@ export function openProduct(id: string) {
 }
 
 /** Carte produit en grille (accueil, favoris) : photo, cœur, nom, prix. */
-export function ProductCard({ product, width }: { product: Product; width: number }) {
+export function ProductCard({ product, width, showStore = true }: { product: Product; width: number; showStore?: boolean }) {
   return (
     <ProductTile
       width={width}
@@ -20,7 +20,7 @@ export function ProductCard({ product, width }: { product: Product; width: numbe
       name={product.name}
       price={displayPrice(product)}
       image={productImage(product)}
-      subtitle={product.store_name}
+      subtitle={showStore ? product.store_name : undefined}
     />
   );
 }

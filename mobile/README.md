@@ -74,9 +74,10 @@ src/
 Le design suit les maquettes « Espace client » et « Espace boutique /
 vendeur » ; les couleurs sont dans `src/theme.ts`.
 
-Côté vendeur, le backend ne permet pas encore de confirmer une commande ni
-de la marquer prête ou expédiée : le statut affiché découle du paiement et
-de la livraison, et la seule action possible est l'annulation.
+Côté vendeur, une commande payée se confirme (« en préparation », le client
+est prévenu) puis se marque « colis prêt » (le livreur affecté est prévenu) :
+`POST /orders/<id>/confirm/` et `/ready/`. L'expédition et la livraison
+suivent ensuite la course du livreur.
 
 ## Paiement
 

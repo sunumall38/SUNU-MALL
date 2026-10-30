@@ -8,7 +8,7 @@ import { Button } from "@/components/Button";
 import { SITE_URL } from "@/lib/config";
 import { formatPrice, timeAgo } from "@/lib/format";
 import { getStoreSummary, listStoreOrders } from "@/lib/merchant";
-import { merchantOrderStage, orderItemsAmount } from "@/lib/merchantOrders";
+import { needsAction, orderItemsAmount } from "@/lib/merchantOrders";
 import { useAuthStore } from "@/store/auth";
 import { useMerchantStore } from "@/store/merchant";
 import { colors, radius, shadow } from "@/theme";
@@ -53,7 +53,7 @@ export default function MerchantDashboard() {
   // Ventes du jour : commandes payées d'aujourd'hui, hors frais de livraison.
   const paidOrders = (orders ?? []).filter((o) => o.status !== "pending" && o.status !== "cancelled");
   const salesToday = paidOrders.filter((o) => isToday(o.created_at)).reduce((sum, o) => sum + orderItemsAmount(o), 0);
-  const toPrepare = (orders ?? []).filter((o) => merchantOrderStage(o).bucket === "new").length;
+  const toPrepare = (orders ?? []).filter(needsAction).length;
   const limit = account?.product_limit;
 
   return (
@@ -112,7 +112,7 @@ export default function MerchantDashboard() {
         {toPrepare > 0 ? (
           <View style={styles.todo}>
             <Text style={styles.todoText}>
-              {toPrepare} commande{toPrepare > 1 ? "s" : ""} à préparer
+              {toPrepare} commande{toPrepare > 1 ? "s" : ""} à traiter
             </Text>
             <Button label="Voir les commandes" onPress={() => router.navigate("/merchant/orders")} />
           </View>

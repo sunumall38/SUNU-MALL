@@ -7,7 +7,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { apiErrorMessage } from "@/lib/api";
 import { formatPrice } from "@/lib/format";
-import { cancelOrder, getStoreOrder } from "@/lib/merchant";
+import { cancelOrder, confirmOrder, getStoreOrder, markOrderReady } from "@/lib/merchant";
 import { merchantOrderStage, merchantOrderSteps, orderItemsAmount } from "@/lib/merchantOrders";
 import { formatDate } from "@/lib/orderStatus";
 import { colors, radius, shadow } from "@/theme";
@@ -23,7 +23,7 @@ export default function MerchantOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [order, setOrder] = useState<MerchantOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [busy, setBusy] = useState<"cancel" | "confirm" | "ready" | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -56,6 +56,21 @@ export default function MerchantOrderScreen() {
   const current = order;
   const stage = merchantOrderStage(current);
   const steps = merchantOrderSteps(current);
+  const shippedOrDone = stage.label === "Expédiée" || stage.bucket === "delivered";
+  const canConfirm = current.status === "paid" && !shippedOrDone;
+  const canMarkReady = current.status === "processing" && !current.ready_at && !shippedOrDone;
+
+  async function advance(action: "confirm" | "ready") {
+    setBusy(action);
+    setError(null);
+    try {
+      setOrder(await (action === "confirm" ? confirmOrder(current.id) : markOrderReady(current.id)));
+    } catch (err) {
+      setError(apiErrorMessage(err, "L'opération a échoué. Réessayez."));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   function confirmCancel() {
     Alert.alert(
@@ -69,14 +84,14 @@ export default function MerchantOrderScreen() {
           text: "Annuler la commande",
           style: "destructive",
           onPress: async () => {
-            setCancelling(true);
+            setBusy("cancel");
             setError(null);
             try {
               setOrder(await cancelOrder(current.id));
             } catch (err) {
               setError(apiErrorMessage(err, "Impossible d'annuler cette commande."));
             } finally {
-              setCancelling(false);
+              setBusy(null);
             }
           },
         },
@@ -167,9 +182,23 @@ export default function MerchantOrderScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
 
-      {current.can_be_cancelled ? (
+      {canConfirm || canMarkReady || current.can_be_cancelled ? (
         <View style={styles.bottomBar}>
-          <Button label="Annuler la commande" variant="secondary" onPress={confirmCancel} loading={cancelling} />
+          {canConfirm ? (
+            <Button label="Confirmer la commande" onPress={() => advance("confirm")} loading={busy === "confirm"} disabled={busy !== null} />
+          ) : null}
+          {canMarkReady ? (
+            <Button label="Colis prêt à récupérer" onPress={() => advance("ready")} loading={busy === "ready"} disabled={busy !== null} />
+          ) : null}
+          {current.can_be_cancelled ? (
+            <Button
+              label="Annuler la commande"
+              variant={canConfirm || canMarkReady ? "ghost" : "secondary"}
+              onPress={confirmCancel}
+              loading={busy === "cancel"}
+              disabled={busy !== null}
+            />
+          ) : null}
         </View>
       ) : null}
     </SafeAreaView>
@@ -208,5 +237,5 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: 14, color: colors.mutedForeground, marginTop: -2 },
   stepLabelActive: { color: colors.ink, fontWeight: "600" },
   error: { fontSize: 14, color: colors.danger },
-  bottomBar: { padding: 16, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border },
+  bottomBar: { padding: 16, gap: 8, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.border },
 });

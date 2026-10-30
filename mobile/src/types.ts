@@ -94,6 +94,8 @@ export interface Store {
   category_detail: { id: number; name: string } | null;
   category_names: string[];
   is_verified_seller: boolean;
+  latitude: string | null;
+  longitude: string | null;
 }
 
 export interface WishlistItem {
@@ -228,6 +230,8 @@ export interface Order {
   items: OrderItem[];
   delivery: OrderDelivery | null;
   payment: OrderPayment | null;
+  /** La boutique a préparé le colis (backend à jour uniquement). */
+  ready_at?: string | null;
   created_at: string;
 }
 

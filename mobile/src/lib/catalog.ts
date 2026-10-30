@@ -43,6 +43,17 @@ export function listStores(params: { page?: number; search?: string; ordering?: 
   return apiGet<Paginated<Store>>(`/catalog/stores/?${qs.toString()}`, PUBLIC);
 }
 
+/** Toutes les boutiques actives (au plus 5 pages de 20), pour les trier et filtrer sur le téléphone. */
+export async function listAllStores(search?: string) {
+  const all: Store[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const data = await listStores({ page, search });
+    all.push(...data.results);
+    if (!data.next) break;
+  }
+  return all;
+}
+
 export function getStore(id: string) {
   return apiGet<Store>(`/catalog/stores/${id}/`, PUBLIC);
 }

@@ -65,6 +65,16 @@ export function getStoreOrder(id: string) {
   return apiGet<MerchantOrder>(`/orders/${id}/`);
 }
 
+/** La boutique accepte une commande payée : elle passe « en préparation ». */
+export function confirmOrder(id: string) {
+  return apiPost<MerchantOrder>(`/orders/${id}/confirm/`);
+}
+
+/** Colis prêt : le livreur peut passer (confirme aussi la commande si besoin). */
+export function markOrderReady(id: string) {
+  return apiPost<MerchantOrder>(`/orders/${id}/ready/`);
+}
+
 export function cancelOrder(id: string) {
   return apiPost<MerchantOrder>(`/orders/${id}/cancel/`);
 }

@@ -19,15 +19,15 @@ type Tab = "all" | Exclude<MerchantBucket, "other">;
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "all", label: "Toutes" },
-  { id: "new", label: "À préparer" },
-  { id: "shipping", label: "Expédiées" },
+  { id: "new", label: "Nouvelles" },
+  { id: "ongoing", label: "En cours" },
   { id: "delivered", label: "Livrées" },
 ];
 
 const EMPTY: Record<Tab, string> = {
   all: "Aucune commande pour l'instant.",
-  new: "Aucune commande à préparer.",
-  shipping: "Aucune commande en route.",
+  new: "Aucune nouvelle commande à confirmer.",
+  ongoing: "Aucune commande en préparation ou en route.",
   delivered: "Aucune commande livrée pour l'instant.",
 };
 

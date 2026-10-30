@@ -14,11 +14,15 @@ export function ProductGrid({
   fetchPage,
   header,
   emptyText,
+  showStore = true,
 }: {
   queryKey: string;
   fetchPage: (page: number) => Promise<Paginated<Product>>;
-  header?: ReactElement;
+  /** En-tête ; reçoit le nombre total de produits (null tant qu'il est inconnu). */
+  header?: (count: number | null) => ReactElement;
   emptyText: string;
+  /** Nom de la boutique sous chaque produit (inutile sur la page d'une boutique). */
+  showStore?: boolean;
 }) {
   const { width } = useWindowDimensions();
   const cardWidth = (width - 32 - GAP) / 2;
@@ -31,11 +35,11 @@ export function ProductGrid({
       numColumns={2}
       columnWrapperStyle={styles.column}
       contentContainerStyle={styles.list}
-      renderItem={({ item }) => <ProductCard product={item} width={cardWidth} />}
+      renderItem={({ item }) => <ProductCard product={item} width={cardWidth} showStore={showStore} />}
       onEndReached={products.loadMore}
       onEndReachedThreshold={0.5}
       refreshControl={<RefreshControl refreshing={products.refreshing} onRefresh={products.refresh} tintColor={colors.orange} />}
-      ListHeaderComponent={header}
+      ListHeaderComponent={header?.(products.count)}
       ListEmptyComponent={
         products.loading ? (
           <ActivityIndicator color={colors.orange} style={styles.loader} />
