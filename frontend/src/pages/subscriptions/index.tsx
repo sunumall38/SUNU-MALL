@@ -118,7 +118,7 @@ export default function SubscriptionsPage() {
           <EmptyState
             icon={Crown}
             title="Vous n'avez pas encore d'abonnement"
-            description="Souscrivez à une formule pour publier des produits et recevoir des commandes. Premier mois gratuit sur toutes les formules."
+            description="Souscrivez à une formule pour continuer à publier des produits et recevoir des commandes après votre essai gratuit."
             action={
               <Link to="/offers">
                 <Button>Voir nos offres</Button>

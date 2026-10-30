@@ -166,14 +166,6 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
         today = timezone.now().date()
         days = plan.duration_days or BILLING_CYCLE_DAYS.get(plan.billing_cycle, 30)
 
-        # Premier mois gratuit (spec §31) : la TOUTE première souscription du
-        # vendeur est activée immédiatement, sans paiement, quel que soit le
-        # prix de la formule. Les souscriptions suivantes (renouvellement,
-        # resouscription après expiration) sont bien facturées.
-        # Calculé AVANT de créer la ligne : sinon la nouvelle souscription
-        # compterait comme "historique" et la promo ne serait jamais accordée.
-        first_month_free = plan.price > 0 and not services.has_subscription_history(user)
-
         subscription = Subscription.objects.create(
             plan=plan, subscriber_type="merchant", subscriber_id=user.id,
             starts_at=today, ends_at=today + timedelta(days=days),
@@ -183,16 +175,15 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
             old_end_date=None, new_end_date=subscription.ends_at,
         )
 
-        if plan.price <= 0 or first_month_free:
+        # Seule une formule gratuite s'active sans paiement : pas de mois
+        # offert, l'essai de 30 jours (à la validation du vendeur) le remplace.
+        if plan.price <= 0:
             subscription.status = Subscription.Status.ACTIVE
             subscription.save(update_fields=["status"])
             subscription.record_history(
                 SubscriptionHistory.Action.ACTIVATED, old_plan=plan, new_plan=plan,
                 old_end_date=None, new_end_date=subscription.ends_at,
-                metadata={
-                    "promo": "first_month_free" if first_month_free else "free_plan",
-                    "regular_price": str(plan.price),
-                },
+                metadata={"promo": "free_plan", "regular_price": str(plan.price)},
             )
             from apps.commissions.services import sync_plan_from_subscription
             sync_plan_from_subscription(subscription)
@@ -200,7 +191,6 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
                 {
                     "subscription": SubscriptionSerializer(subscription).data,
                     "payment": None,
-                    "promo": "first_month_free" if first_month_free else None,
                 },
                 status=status.HTTP_201_CREATED,
             )

@@ -2,7 +2,7 @@
 Tests de la monétisation SUNU MALL (spec §24-§25).
 
 Couvre : les 3 plans, les limites de produits (Starter 10 / Pro 30 /
-Business illimité), le premier mois gratuit, le cycle de vie de l'abonnement
+Business illimité), la première souscription payante, le cycle de vie de l'abonnement
 (création, activation, renouvellement, changement de plan, expiration,
 annulation), les références SUB-YYYYMMDD-######, les paiements (webhook,
 doublons, référence unique), les permissions (un vendeur ne voit jamais
@@ -109,15 +109,19 @@ class MonetizationTestCase(TestCase):
         return products
 
     def give_prior_subscription(self, seller, code="STARTER", status=Subscription.Status.EXPIRED):
-        """Historique d'abonnement antérieur : la prochaine souscription n'est
-        plus éligible au premier mois gratuit (elle passe donc par le paiement)."""
+        """Historique d'abonnement antérieur (expiré par défaut)."""
         plan = self.get_plan(code)
         today = timezone.now().date()
-        return Subscription.objects.create(
+        subscription = Subscription.objects.create(
             plan=plan, subscriber_type="merchant", subscriber_id=seller.id,
             status=status,
             starts_at=today - timedelta(days=30), ends_at=today - timedelta(days=1),
         )
+        # Créé un mois plus tôt : sans cela, sous Windows, la souscription
+        # suivante peut avoir la même heure de création et passer après lui.
+        Subscription.objects.filter(pk=subscription.pk).update(created_at=timezone.now() - timedelta(days=30))
+        subscription.refresh_from_db()
+        return subscription
 
 
 class PlanTests(MonetizationTestCase):
@@ -169,6 +173,10 @@ class SubscriptionLifecycleTests(MonetizationTestCase):
             f"/api/monetization/subscription-plans/{self.get_plan('PRO').id}/subscribe/",
             {"payment_method": "wave"},
         )
+        # Paiement confirmé : la première formule est active.
+        sub = self.get_latest_subscription(self.seller)
+        sub.status = Subscription.Status.ACTIVE
+        sub.save(update_fields=["status"])
         resp = self.client.post(
             f"/api/monetization/subscription-plans/{self.get_plan('STARTER').id}/subscribe/",
             {"payment_method": "wave"},
@@ -347,8 +355,11 @@ class ProductLimitTests(MonetizationTestCase):
             services.check_product_creation_allowed(self.seller)
 
 
-class FirstMonthFreeTests(MonetizationTestCase):
-    def test_first_subscription_is_free_and_immediately_active(self):
+class FirstSubscriptionTests(MonetizationTestCase):
+    """Pas de mois offert : l'essai gratuit de 30 jours le remplace, et la
+    toute première formule se paie comme les suivantes."""
+
+    def test_first_subscription_is_charged(self):
         self.client.force_authenticate(self.seller)
         resp = self.client.post(
             f"/api/monetization/subscription-plans/{self.get_plan('PRO').id}/subscribe/",
@@ -356,40 +367,9 @@ class FirstMonthFreeTests(MonetizationTestCase):
         )
         self.assertEqual(resp.status_code, 201, resp.content)
         data = resp.json()
-        self.assertEqual(data["promo"], "first_month_free")
-        self.assertIsNone(data["payment"])
-        self.assertEqual(data["subscription"]["status"], Subscription.Status.ACTIVE)
-        sub = self.get_latest_subscription(self.seller)
-        self.assertTrue(sub.is_active())
-        # L'historique trace la promotion (preuve métier).
-        self.assertTrue(
-            SubscriptionHistory.objects.filter(
-                subscription=sub, action=SubscriptionHistory.Action.ACTIVATED,
-                metadata__promo="first_month_free",
-            ).exists()
-        )
-
-    def test_second_subscription_is_charged_after_expiry(self):
-        self.client.force_authenticate(self.seller)
-        resp = self.client.post(
-            f"/api/monetization/subscription-plans/{self.get_plan('PRO').id}/subscribe/",
-            {"payment_method": "wave"},
-        )
-        self.assertEqual(resp.status_code, 201, resp.content)
-        sub = self.get_latest_subscription(self.seller)
-        sub.status = Subscription.Status.EXPIRED
-        sub.ends_at = timezone.now().date() - timedelta(days=1)
-        sub.save(update_fields=["status", "ends_at"])
-
-        resp = self.client.post(
-            f"/api/monetization/subscription-plans/{self.get_plan('STARTER').id}/subscribe/",
-            {"payment_method": "wave"},
-        )
-        self.assertEqual(resp.status_code, 201, resp.content)
-        data = resp.json()
-        self.assertIsNone(data.get("promo"))
         self.assertIsNotNone(data["payment"])
         self.assertEqual(data["subscription"]["status"], Subscription.Status.PENDING)
+        self.assertFalse(self.get_latest_subscription(self.seller).is_active())
 
 
 class SubscriptionReferenceTests(MonetizationTestCase):

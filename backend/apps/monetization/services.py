@@ -158,15 +158,6 @@ def subscription_state(seller):
     }
 
 
-def has_subscription_history(user):
-    """Vrai si le vendeur a déjà eu au moins un abonnement — n'importe quel
-    statut (actif, expiré, annulé…). Sert à n'accorder le premier mois
-    gratuit (spec §31) qu'à la toute première souscription du vendeur."""
-    return Subscription.objects.filter(
-        subscriber_type="merchant", subscriber_id=user.id,
-    ).exists()
-
-
 def seed_default_plans():
     """Seed idempotent des trois formules (tests `--nomigrations` et premières bases).
 
